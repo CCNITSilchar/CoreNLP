@@ -1,9 +1,13 @@
-package edu.stanford.nlp.pipeline; 
-import edu.stanford.nlp.util.logging.Redwood;
+package edu.stanford.nlp.pipeline;
 
-import java.util.Map;
+import java.util.*;
+import java.util.function.Supplier;
 
 import edu.stanford.nlp.util.Generics;
+import edu.stanford.nlp.util.Lazy;
+import edu.stanford.nlp.util.PropertiesUtils;
+import edu.stanford.nlp.util.logging.Redwood;
+
 
 /**
  * An object for keeping track of Annotators. Typical use is to allow multiple
@@ -19,17 +23,60 @@ import edu.stanford.nlp.util.Generics;
 public class AnnotatorPool  {
 
   /** A logger for this class */
-  private static Redwood.RedwoodChannels log = Redwood.channels(AnnotatorPool.class);
+  private static final Redwood.RedwoodChannels log = Redwood.channels(AnnotatorPool.class);
 
-  private final Map<String, Annotator> annotators;
-  private final Map<String, AnnotatorFactory> factories;
+  /**
+   * A cached annotator, including the signature it should cache on.
+   */
+  private static class CachedAnnotator {
+    /** The signature of the annotator. */
+    public final String signature;
+    /** The cached annotator. */
+    public final Lazy<Annotator> annotator;
+
+    /**
+     * The straightforward constructor.
+     */
+    private CachedAnnotator(String signature, Lazy<Annotator> annotator) {
+      if (!annotator.isCache()) {
+        log.warn("Cached annotator will never GC -- this can cause OOM exceptions!");
+      }
+      this.signature = signature;
+      this.annotator = annotator;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      CachedAnnotator that = (CachedAnnotator) o;
+      return signature != null ? signature.equals(that.signature) : that.signature == null && (annotator != null ? annotator.equals(that.annotator) : that.annotator == null);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public int hashCode() {
+      int result = signature != null ? signature.hashCode() : 0;
+      result = 31 * result + (annotator != null ? annotator.hashCode() : 0);
+      return result;
+    }
+  }
+
+
+
+  /**
+   * The set of annotators that we have cached, possibly with garbage collected annotator instances.
+   * This is a map from annotator name to cached annotator instances.
+   */
+  private final Map<String, CachedAnnotator> cachedAnnotators;
+
 
   /**
    * Create an empty AnnotatorPool.
    */
   public AnnotatorPool() {
-    this.annotators = Generics.newHashMap();
-    this.factories = Generics.newHashMap();
+    this.cachedAnnotators = Generics.newHashMap();
   }
 
   /**
@@ -39,36 +86,52 @@ public class AnnotatorPool  {
    * be defined within the AnnotatorPool, but an Annotator is only created
    * when one is actually needed.
    *
-   * @param name    The name to be associated with the Annotator.
-   * @param factory A factory that creates an instance of the desired Annotator.
+   * @param name       The name to be associated with the Annotator.
+   * @param props The properties we are using to create the annotator
+   * @param annotator    A factory that creates an instance of the desired Annotator.
+   *                     This should be an instance of {@link Lazy#cache(Supplier)}, if we want
+   *                     the annotator pool to behave as a cache (i.e., evict old annotators
+   *                     when the GC requires it).
+   *
    * @return true if a new annotator was created; false if we reuse an existing one
    */
-  public boolean register(String name, AnnotatorFactory factory) {
+  public boolean register(String name, Properties props, Lazy<Annotator> annotator) {
     boolean newAnnotator = false;
-    if (this.factories.containsKey(name)) {
-      AnnotatorFactory oldFactory = this.factories.get(name);
-      String oldSig = oldFactory.signature();
-      String newSig = factory.signature();
-      if(! oldSig.equals(newSig)) {
+    String newSig = PropertiesUtils.getSignature(name, props);
+    synchronized (this.cachedAnnotators) {
+      CachedAnnotator oldAnnotator = this.cachedAnnotators.get(name);
+      if (oldAnnotator == null || !Objects.equals(oldAnnotator.signature, newSig)) {
         // the new annotator uses different properties so we need to update!
-        // TODO: this printout should be logged instead of going to stderr. we need to standardize logging
-        // log.info("Replacing old annotator \"" + name + "\" with signature ["
-        //         + oldSig + "] with new annotator with signature [" + newSig + "]");
-        this.factories.put(name, factory);
+        if (oldAnnotator != null) {
+          // Try to get it from the global cache
+          log.debug("Replacing old annotator \"" + name + "\" with signature ["
+              + oldAnnotator.signature + "] with new annotator with signature [" + newSig + "]");
+        }
+        // Add the new annotator
+        this.cachedAnnotators.put(name, new CachedAnnotator(newSig, annotator));
+        // Unmount the old annotator
+        Optional.ofNullable(oldAnnotator).flatMap(ann -> Optional.ofNullable(ann.annotator.getIfDefined())).ifPresent(Annotator::unmount);
+        // Register that we added an annotator
         newAnnotator = true;
-
-        // delete the existing annotator; we'll create one with the new props on demand
-        // removing the annotator like this will not affect any
-        // existing pipelines which use the old annotator, but if
-        // those are all gone, then the old annotator will be garbage
-        // collected and memory will be freed up
-        annotators.remove(name);
       }
       // nothing to do if an annotator with same name and signature already exists
-    } else {
-      this.factories.put(name, factory);
     }
     return newAnnotator;
+  }
+
+
+  /**
+   * Clear this pool, and unmount all the annotators mounted on it.
+   */
+  public synchronized void clear() {
+    synchronized (this.cachedAnnotators) {
+      for (Map.Entry<String, CachedAnnotator> entry : new HashSet<>(this.cachedAnnotators.entrySet())) {
+        // Unmount the annotator
+        Optional.ofNullable(entry.getValue()).flatMap(ann -> Optional.ofNullable(ann.annotator.getIfDefined())).ifPresent(Annotator::unmount);
+        // Remove the annotator
+        this.cachedAnnotators.remove(entry.getKey());
+      }
+    }
   }
 
   /**
@@ -81,14 +144,18 @@ public class AnnotatorPool  {
    * @throws IllegalArgumentException If the annotator cannot be created
    */
   public synchronized Annotator get(String name) {
-    if (!this.annotators.containsKey(name)) {
-      AnnotatorFactory factory = this.factories.get(name);
-      if (factory == null) {
-        throw new IllegalArgumentException("No annotator named " + name);
-      }
-      this.annotators.put(name, factory.create());
+    CachedAnnotator factory =  this.cachedAnnotators.get(name);
+    if (factory != null) {
+      return factory.annotator.get();
+    } else {
+      throw new IllegalArgumentException("No annotator named " + name);
     }
-    return this.annotators.get(name);
   }
+
+
+  /**
+   * A global singleton annotator pool, so that we can cache globally on a JVM instance.
+   */
+  public static final AnnotatorPool SINGLETON = new AnnotatorPool();
 
 }

@@ -1,30 +1,17 @@
 package edu.stanford.nlp.dcoref; 
+import edu.stanford.nlp.pipeline.*;
+import edu.stanford.nlp.trees.*;
 import edu.stanford.nlp.util.logging.Redwood;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Pattern;
 
 import edu.stanford.nlp.ling.CoreAnnotations;
 import edu.stanford.nlp.ling.MultiTokenTag;
-import edu.stanford.nlp.trees.TreeCoreAnnotations;
 import edu.stanford.nlp.ling.CoreLabel;
 import edu.stanford.nlp.ling.Label;
 import edu.stanford.nlp.parser.common.ParserAnnotations;
 import edu.stanford.nlp.parser.common.ParserConstraint;
-import edu.stanford.nlp.pipeline.Annotation;
-import edu.stanford.nlp.pipeline.AnnotationPipeline;
-import edu.stanford.nlp.pipeline.Annotator;
-import edu.stanford.nlp.pipeline.StanfordCoreNLP;
-import edu.stanford.nlp.trees.HeadFinder;
-import edu.stanford.nlp.trees.SemanticHeadFinder;
-import edu.stanford.nlp.trees.Tree;
-import edu.stanford.nlp.trees.Trees;
 import edu.stanford.nlp.semgraph.SemanticGraph;
 import edu.stanford.nlp.semgraph.SemanticGraphCoreAnnotations;
 import edu.stanford.nlp.trees.tregex.TregexMatcher;
@@ -127,7 +114,7 @@ public class RuleBasedCorefMentionFinder implements CorefMentionFinder  {
 
   protected static void extractPremarkedEntityMentions(CoreMap s, List<Mention> mentions, Set<IntPair> mentionSpanSet, Set<IntPair> namedEntitySpanSet) {
     List<CoreLabel> sent = s.get(CoreAnnotations.TokensAnnotation.class);
-    SemanticGraph dependency = s.get(SemanticGraphCoreAnnotations.AlternativeDependenciesAnnotation.class);
+    SemanticGraph dependency = s.get(SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class);
     int beginIndex = -1;
     for(CoreLabel w : sent) {
       MultiTokenTag t = w.get(CoreAnnotations.MentionTokenAnnotation.class);
@@ -159,7 +146,7 @@ public class RuleBasedCorefMentionFinder implements CorefMentionFinder  {
 
   protected static void extractNamedEntityMentions(CoreMap s, List<Mention> mentions, Set<IntPair> mentionSpanSet, Set<IntPair> namedEntitySpanSet) {
     List<CoreLabel> sent = s.get(CoreAnnotations.TokensAnnotation.class);
-    SemanticGraph dependency = s.get(SemanticGraphCoreAnnotations.AlternativeDependenciesAnnotation.class);
+    SemanticGraph dependency = s.get(SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class);
     String preNE = "O";
     int beginIndex = -1;
     for(CoreLabel w : sent) {
@@ -203,7 +190,7 @@ public class RuleBasedCorefMentionFinder implements CorefMentionFinder  {
     List<CoreLabel> sent = s.get(CoreAnnotations.TokensAnnotation.class);
     Tree tree = s.get(TreeCoreAnnotations.TreeAnnotation.class);
     tree.indexLeaves();
-    SemanticGraph dependency = s.get(SemanticGraphCoreAnnotations.AlternativeDependenciesAnnotation.class);
+    SemanticGraph dependency = s.get(SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class);
 
     TregexPattern tgrepPattern = npOrPrpMentionPattern;
     TregexMatcher matcher = tgrepPattern.matcher(tree);
@@ -228,7 +215,7 @@ public class RuleBasedCorefMentionFinder implements CorefMentionFinder  {
   protected static void extractEnumerations(CoreMap s, List<Mention> mentions, Set<IntPair> mentionSpanSet, Set<IntPair> namedEntitySpanSet) {
     List<CoreLabel> sent = s.get(CoreAnnotations.TokensAnnotation.class);
     Tree tree = s.get(TreeCoreAnnotations.TreeAnnotation.class);
-    SemanticGraph dependency = s.get(SemanticGraphCoreAnnotations.AlternativeDependenciesAnnotation.class);
+    SemanticGraph dependency = s.get(SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class);
 
     TregexPattern tgrepPattern = enumerationsMentionPattern;
     TregexMatcher matcher = tgrepPattern.matcher(tree);
@@ -452,6 +439,10 @@ public class RuleBasedCorefMentionFinder implements CorefMentionFinder  {
   private Annotator getParser() {
     if(parserProcessor == null){
       Annotator parser = StanfordCoreNLP.getExistingAnnotator("parse");
+      if (parser == null) {
+        Properties emptyProperties = new Properties();
+        parser = new ParserAnnotator("coref.parse.md", emptyProperties);
+      }
       if (parser == null) {
         // TODO: these assertions rule out the possibility of alternately named parse/pos annotators
         throw new AssertionError("Failed to get parser - this should not be possible");

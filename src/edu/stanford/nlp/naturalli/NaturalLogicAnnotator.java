@@ -1,4 +1,4 @@
-package edu.stanford.nlp.naturalli; 
+package edu.stanford.nlp.naturalli;
 import edu.stanford.nlp.util.logging.Redwood;
 
 import edu.stanford.nlp.ie.machinereading.structure.Span;
@@ -60,7 +60,7 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
   /**
    * A regex for arcs which denote a preposition
    */
-  private static final String GEN_PREP = "/nmod|advcl|ccomp|advmod/";
+  private static final String GEN_PREP = "/nmod(:.{1,10})?|advcl|ccomp|advmod/";
 
   /**
    * A Semgrex fragment for matching a quantifier.
@@ -106,9 +106,20 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
     //   Felix is cute }
     add(SemgrexPattern.compile("{}=object >"+GEN_SUBJ+" {pos:NNP}=Subject >"+GEN_COP+" {}=pivot"));
     // { Some cats do n't like dogs }
-    add(SemgrexPattern.compile("{}=pivot >neg "+QUANTIFIER+" >"+GEN_OBJ+" {}=object"));
-    // { Obama was not born in Dallas }
-    add(SemgrexPattern.compile("{}=pivot >/neg/ {}=quantifier >"+GEN_PREP+" {}=object"));
+    add(SemgrexPattern.compile("{}=pivot >/neg/ "+QUANTIFIER+" >"+GEN_OBJ+" {}=object"));
+    // { Obama was not born in Dallas,
+    //   Cats are not fluffy,
+    //   Tuesday will not work }
+    add(SemgrexPattern.compile("{}=pivot >/neg/ {}=quantifier >"+GEN_PREP+" {}=object >"+GEN_SUBJ+" {}=subject "));
+    add(SemgrexPattern.compile("{pos:/J.*/}=object >/neg/ {}=quantifier >"+GEN_SUBJ+" {}=subject "));
+    add(SemgrexPattern.compile("{pos:/V.*/}=object >/neg/ {}=quantifier >"+GEN_SUBJ+" {}=subject >aux {pos:MD}"));
+    // { Anytime but next Tuesday,
+    //   food but not water,
+    //   not on Tuesday  }
+    add(SemgrexPattern.compile("{}=pivot >>/cc/ "+QUANTIFIER+" >/conj/ {}=object"));
+    add(SemgrexPattern.compile("{lemma:/not|no|but|except/}=quantifier >/conj|nmod(:.*)?/ {}=object"));  // as above, but handle a common parse error
+    // { Anything except cabbage }
+    add(SemgrexPattern.compile("{}=object >/case/ "+QUANTIFIER));
     // { All of the cats hate dogs. }
     //nmod used to be prep - problem?
     add(SemgrexPattern.compile("{pos:/V.*/}=pivot >"+GEN_SUBJ+" ( "+QUANTIFIER+" >/nmod.*/ {}=subject ) >"+GEN_OBJ+" {}=object"));
@@ -125,18 +136,18 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
    * A pattern for just trivial unary quantification, in case a quantifier doesn't match any of the patterns in
    * {@link edu.stanford.nlp.naturalli.NaturalLogicAnnotator#PATTERNS}.
    */
-  private static SemgrexPattern UNARY_PATTERN = SemgrexPattern.compile("{pos:/N.*/}=subject >"+DET+" "+QUANTIFIER);
+  private static final SemgrexPattern UNARY_PATTERN = SemgrexPattern.compile("{pos:/N.*/}=subject >"+DET+" "+QUANTIFIER);
 
   /**
    * A list of words that suggest their complement has downward polarity.
    * For example, "doubt" ("I doubt that X")
    */
-  private static List<String> DOUBT_WORDS = Arrays.asList("doubt", "skeptical");
+  private static final List<String> DOUBT_WORDS = Arrays.asList("doubt", "skeptical");
 
   /**
    * A pattern for recognizing the words in {@link NaturalLogicAnnotator#DOUBT_WORDS}.
    */
-  private static TokenSequencePattern DOUBT_PATTERN
+  private static final TokenSequencePattern DOUBT_PATTERN
       = TokenSequencePattern.compile("(?$doubt [{ lemma:/" + StringUtils.join(DOUBT_WORDS, "|") + "/}]) (?$target [{lemma:/that|of/}] []+ )");
 
   /** A helper method for
@@ -175,6 +186,11 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
     add("compound");
   }});
 
+  private static final Set<String> JJ_COMPONENT_ARCS = Collections.unmodifiableSet(new HashSet<String>() {{
+    add("advmod");
+    add("amod");
+  }});
+
   /**
    * Returns the yield span for the word rooted at the given node, but only traversing a fixed set of relations.
    * @param tree The dependency graph to get the span from.
@@ -182,7 +198,11 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
    * @return A one indexed span rooted at the given word.
    */
   private static Pair<Integer, Integer> getModifierSubtreeSpan(SemanticGraph tree, IndexedWord root) {
-    return getGeneralizedSubtreeSpan(tree, root, MODIFIER_ARCS);
+    if (tree.outgoingEdgeList(root).stream().anyMatch(x -> "neg".equals(x.getRelation().getShortName()))) {
+      return getGeneralizedSubtreeSpan(tree, root, Collections.singleton("nmod"));
+    } else {
+      return getGeneralizedSubtreeSpan(tree, root, MODIFIER_ARCS);
+    }
   }
 
   /**
@@ -254,10 +274,10 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
    *   <li>If we have a one-place quantifier, the object is allowed to absorb only prepositions from the pivot.</li>
    * </ul>
    */
-  private OperatorSpec computeScope(SemanticGraph tree, Operator operator,
-                                    IndexedWord pivot, Pair<Integer, Integer> quantifierSpan,
-                                    IndexedWord subject, boolean isProperNounSubject, IndexedWord object,
-                                    int sentenceLength) {
+  private static OperatorSpec computeScope(SemanticGraph tree, Operator operator,
+                                           IndexedWord pivot, Pair<Integer, Integer> quantifierSpan,
+                                           IndexedWord subject, boolean isProperNounSubject, IndexedWord object,
+                                           int sentenceLength) {
     Pair<Integer, Integer> subjSpan;
     Pair<Integer, Integer> objSpan;
     if (subject == null && object == null) {
@@ -284,7 +304,13 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
         subjectSubtree = getSubtreeSpan(tree, subject);
       }
       subjSpan = excludeFromSpan(subjectSubtree, quantifierSpan);
-      objSpan = excludeFromSpan(includeInSpan(getSubtreeSpan(tree, object), getModifierSubtreeSpan(tree, pivot)), subjectSubtree);
+      Pair<Integer, Integer> vanillaObjectSpan = getGeneralizedSubtreeSpan(tree, object, object == pivot ? JJ_COMPONENT_ARCS : null);
+      objSpan = excludeFromSpan(
+          includeInSpan(
+              vanillaObjectSpan,
+              object == pivot ? vanillaObjectSpan : getModifierSubtreeSpan(tree, pivot)
+          ),
+          subjectSubtree);
     }
 
     // Return scopes
@@ -304,9 +330,11 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
    *
    * @param sentence The sentence we are matching.
    * @param quantifier The word at which we matched a quantifier.
+   * @param isUnary If true, this is a unary quantifier
+   *
    * @return An optional triple consisting of the particular quantifier we matched, as well as the span of that quantifier in the sentence.
    */
-  private Optional<Triple<Operator,Integer,Integer>> validateQuantiferByHead(CoreMap sentence, IndexedWord quantifier) {
+  private static Optional<Triple<Operator,Integer,Integer>> validateQuantifierByHead(CoreMap sentence, IndexedWord quantifier, boolean isUnary) {
     // Some useful variables
     List<CoreLabel> tokens = sentence.get(CoreAnnotations.TokensAnnotation.class);
     Function<CoreLabel, String> glossFn = (label) -> "CD".equals(label.tag()) ? "--NUM--" : label.lemma();
@@ -321,7 +349,7 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
       for (int start = Math.max(0, quantIndex - 10); start < quantIndex; ++start) {
         String gloss = StringUtils.join(tokens, " ", glossFn, start, end).toLowerCase();
         for (Operator q : Operator.valuesByLengthDesc) {
-          if (q.surfaceForm.equals(gloss)) {
+          if (q.surfaceForm.equals(gloss) && ( !q.isUnary() || isUnary ) ) {
             return Optional.of(Triple.makeTriple(q, start + 1, end + 1));
           }
         }
@@ -341,7 +369,7 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
     SemanticGraph tree = sentence.get(SemanticGraphCoreAnnotations.BasicDependenciesAnnotation.class);
     List<CoreLabel> tokens = sentence.get(CoreAnnotations.TokensAnnotation.class);
     if (tree == null) {
-      tree = sentence.get(SemanticGraphCoreAnnotations.CollapsedDependenciesAnnotation.class);
+      tree = sentence.get(SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class);
     }
     for (SemgrexPattern pattern : PATTERNS) {
       SemgrexMatcher matcher = pattern.matcher(tree);
@@ -358,6 +386,7 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
           quantifier = matcher.getNode("quantifier");
           subject = matcher.getNode("subject");
         }
+        IndexedWord object = matcher.getNode("object");
 
         // Validate quantifier
         // At the end of this
@@ -370,7 +399,7 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
           quantifierInfo = Optional.of(Triple.makeTriple(Operator.IMPLICIT_NAMED_ENTITY, quantifier.index(), quantifier.index()));  // note: empty quantifier span given
         } else {
           // find the quantifier, and return some info about it.
-          quantifierInfo = validateQuantiferByHead(sentence, quantifier);
+          quantifierInfo = validateQuantifierByHead(sentence, quantifier, object == null || subject == null);
         }
 
         // Awful hacks to regularize the subject of things like "one of" and "there are"
@@ -402,9 +431,13 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
         // Set tokens
         if (quantifierInfo.isPresent()) {
           // Compute span
+          IndexedWord pivot = matcher.getNode("pivot");
+          if (pivot == null) {
+            pivot = object;
+          }
           OperatorSpec scope = computeScope(tree, quantifierInfo.get().first,
-              matcher.getNode("pivot"), Pair.makePair(quantifierInfo.get().second, quantifierInfo.get().third),
-              subject, namedEntityQuantifier, matcher.getNode("object"), tokens.size());
+              pivot, Pair.makePair(quantifierInfo.get().second, quantifierInfo.get().third),
+              subject, namedEntityQuantifier, object, tokens.size());
           // Set annotation
           CoreLabel token = sentence.get(CoreAnnotations.TokensAnnotation.class).get(quantifier.index() - 1);
           OperatorSpec oldScope = token.get(OperatorAnnotation.class);
@@ -421,9 +454,19 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
     // Ensure we didn't select overlapping quantifiers. For example, "a" and "a few" can often overlap.
     // In these cases, take the longer quantifier match.
     List<OperatorSpec> quantifiers = new ArrayList<>();
-    sentence.get(CoreAnnotations.TokensAnnotation.class).stream()
-        .filter(token -> token.containsKey(OperatorAnnotation.class))
-        .forEach(token -> quantifiers.add(token.get(OperatorAnnotation.class)));
+    for (int i = 0; i < tokens.size(); ++i) {
+      CoreLabel token = tokens.get(i);
+      OperatorSpec operator;
+      if ( (operator = token.get(OperatorAnnotation.class)) != null) {
+        if (i == 0 && operator.instance == Operator.NO && tokens.size() > 2 && "PRP".equals(tokens.get(1).get(CoreAnnotations.PartOfSpeechAnnotation.class))) {
+          // This is pragmatically not a negation -- ignore it
+          // For example, "no I don't like candy" or "no you like cats"
+          token.remove(OperatorAnnotation.class);
+        } else {
+          quantifiers.add(operator);
+        }
+      }
+    }
     quantifiers.sort( (x, y) -> y.quantifierLength() - x.quantifierLength());
     for (OperatorSpec quantifier : quantifiers) {
       for (int i = quantifier.quantifierBegin; i < quantifier.quantifierEnd; ++i) {
@@ -438,11 +481,11 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
    * Annotate any unary quantifiers that weren't found in the main {@link NaturalLogicAnnotator#annotateOperators(CoreMap)} method.
    * @param sentence The sentence to annotate.
    */
-  private void annotateUnaries(CoreMap sentence) {
+  private static void annotateUnaries(CoreMap sentence) {
     // Get tree and tokens
     SemanticGraph tree = sentence.get(SemanticGraphCoreAnnotations.BasicDependenciesAnnotation.class);
     if (tree == null) {
-      tree = sentence.get(SemanticGraphCoreAnnotations.CollapsedDependenciesAnnotation.class);
+      tree = sentence.get(SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class);
     }
     List<CoreLabel> tokens = sentence.get(CoreAnnotations.TokensAnnotation.class);
 
@@ -470,7 +513,7 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
       IndexedWord subject = matcher.getNode("subject");
       // ... If there is not already an operator there
       if (!isOperator[quantifier.index() - 1]) {
-        Optional<Triple<Operator, Integer, Integer>> quantifierInfo = validateQuantiferByHead(sentence, quantifier);
+        Optional<Triple<Operator, Integer, Integer>> quantifierInfo = validateQuantifierByHead(sentence, quantifier, true);
         // ... and if we found a quantifier span
         if (quantifierInfo.isPresent()) {
           // Then add the unary operator!
@@ -506,7 +549,7 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
    *
    * @param sentence As in {@link edu.stanford.nlp.naturalli.NaturalLogicAnnotator#doOneSentence(edu.stanford.nlp.pipeline.Annotation, edu.stanford.nlp.util.CoreMap)}
    */
-  private void annotatePolarity(CoreMap sentence) {
+  private static void annotatePolarity(CoreMap sentence) {
     // Collect all the operators in this sentence
     List<OperatorSpec> operators = new ArrayList<>();
     List<CoreLabel> tokens = sentence.get(CoreAnnotations.TokensAnnotation.class);
@@ -527,13 +570,13 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
         token.set(PolarityAnnotation.class, Polarity.DEFAULT);
       }
     }
-    if (sentence.containsKey(SemanticGraphCoreAnnotations.CollapsedDependenciesAnnotation.class)) {
-      for (IndexedWord token : sentence.get(SemanticGraphCoreAnnotations.CollapsedDependenciesAnnotation.class).vertexSet()) {
+    if (sentence.containsKey(SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class)) {
+      for (IndexedWord token : sentence.get(SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class).vertexSet()) {
         token.set(PolarityAnnotation.class, Polarity.DEFAULT);
       }
     }
-    if (sentence.containsKey(SemanticGraphCoreAnnotations.CollapsedCCProcessedDependenciesAnnotation.class)) {
-      for (IndexedWord token : sentence.get(SemanticGraphCoreAnnotations.CollapsedCCProcessedDependenciesAnnotation.class).vertexSet()) {
+    if (sentence.containsKey(SemanticGraphCoreAnnotations.EnhancedPlusPlusDependenciesAnnotation.class)) {
+      for (IndexedWord token : sentence.get(SemanticGraphCoreAnnotations.EnhancedPlusPlusDependenciesAnnotation.class).vertexSet()) {
         token.set(PolarityAnnotation.class, Polarity.DEFAULT);
       }
     }
@@ -550,7 +593,7 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
           inScope.add(Triple.makeTriple(operator.objectEnd - operator.objectBegin, operator.instance.objMono, operator.instance.objType));
         }
       }
-      // Sort the operators by their scope (approximated by the size of their argument span
+      // Sort the operators by their scope (approximated by the size of their argument span)
       inScope.sort( (x, y) -> y.first - x.first);
       // Create polarity
       List<Pair<Monotonicity, MonotonicityType>> info = new ArrayList<>(inScope.size());
@@ -561,6 +604,20 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
       // Set polarity
       token.set(PolarityAnnotation.class, polarity);
     }
+
+    // Set the PolarityDirectionAnnotation
+    for (CoreLabel token : tokens) {
+      Polarity polarity = token.get(PolarityAnnotation.class);
+      if (polarity != null) {
+        if (polarity.isUpwards()) {
+          token.set(PolarityDirectionAnnotation.class, "up");
+        } else if (polarity.isDownwards()) {
+          token.set(PolarityDirectionAnnotation.class, "down");
+        } else {
+          token.set(PolarityDirectionAnnotation.class, "flat");
+        }
+      }
+    }
   }
 
   /**
@@ -569,6 +626,7 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
   @ArgumentParser.Option(name="doPolarity", gloss="Mark polarity in addition to quantifier scopes")
   private boolean doPolarity = true;
 
+  @SuppressWarnings("FieldCanBeLocal")
   @ArgumentParser.Option(name="neQuantifiers", gloss="If true, mark named entities as quantifiers.")
   private boolean neQuantifiers = false;
 
@@ -643,8 +701,9 @@ public class NaturalLogicAnnotator extends SentenceAnnotator  {
         CoreAnnotations.PartOfSpeechAnnotation.class,
         CoreAnnotations.LemmaAnnotation.class,
         SemanticGraphCoreAnnotations.BasicDependenciesAnnotation.class,
-        SemanticGraphCoreAnnotations.CollapsedDependenciesAnnotation.class,
-        SemanticGraphCoreAnnotations.CollapsedCCProcessedDependenciesAnnotation.class
+        SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class,
+        SemanticGraphCoreAnnotations.EnhancedPlusPlusDependenciesAnnotation.class
     )));
   }
+
 }

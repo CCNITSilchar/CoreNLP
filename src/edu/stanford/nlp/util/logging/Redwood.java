@@ -19,10 +19,10 @@ import edu.stanford.nlp.util.*;
 
 /**
  * A hierarchical channel-based logger. Log messages are arranged hierarchically by depth
- * (e.g. main-&gt;tagging-&gt;sentence 2) using the startTrack() and endTrack() methods.
+ * (e.g., main-&gt;tagging-&gt;sentence 2) using the startTrack() and endTrack() methods.
  * Furthermore, messages can be flagged with a number of channels, which allow filtering by channel.
- * Log levels are implemented as channels (ERROR, WARNING, etc).
- *
+ * Log levels are implemented as channels (ERROR, WARNING, etc.).
+ * <p>
  * Details on the handlers used are documented in their respective classes, which all implement
  * {@link LogRecordHandler}.
  * New handlers should implement this class.
@@ -30,8 +30,8 @@ import edu.stanford.nlp.util.*;
  * Details on configuring Redwood can be found in the {@link RedwoodConfiguration} class.
  * New configuration methods should be implemented in this class, following the standard
  * builder paradigm.
- *
- * There is a <a href="http://nlp.stanford.edu/javanlp/tutorials/Redwood.pdf"> tutorial on Redwood </a> on the
+ * <p>
+ * There is a <a href="https://nlp.stanford.edu/software/Redwood.pdf">tutorial on Redwood</a> on the
  * NLP website.
  *
  * @author Gabor Angeli (angeli at cs.stanford)
@@ -220,7 +220,8 @@ public class Redwood  {
   }
 
   /**
-   * Get a handler based on its class
+   * Get a handler based on its class.
+   *
    * @param clazz The class of the Handler to return.
    *              If multiple Handlers exist, the first one is returned.
    * @param <E> The class of the handler to return.
@@ -419,7 +420,8 @@ public class Redwood  {
    * from one of the threads; as each thread finishes, another thread begins logging,
    * first by making up the backlog, and then by printing any new log messages.
    * A thread signals that it has finished logging with the finishThread() function;
-   * the multithreaded environment is ended with the endThreads() function
+   * the multithreaded environment is ended with the endThreads() function.
+   *
    * @param title The name of the thread group being started
    */
   public static void startThreads(String title){
@@ -529,13 +531,13 @@ public class Redwood  {
   /**
    * Stop Redwood, closing all tracks and prohibiting future log messages.
    */
-  public static void stop(){
+  public static void stop() {
     //--Close logger
     isClosed = true; // <- not a thread-safe boolean
     Thread.yield(); //poor man's synchronization attempt (let everything else log that wants to)
     Thread.yield();
     //--Close Tracks
-    while(depth > 0){
+    while (depth > 0) {
       depth -= 1;
       //(send signal to handlers)
       handlers.process(null, MessageType.END_TRACK, depth, System.currentTimeMillis());
@@ -574,7 +576,7 @@ public class Redwood  {
       b.append(min).append(":");
     }
     if(min > 0 && sec < 10){ b.append("0"); }
-    b.append(sec).append(".").append(mili);
+    b.append(sec).append(".").append(String.format("%04d", mili));
     if(min > 0) b.append(" minutes");
     else b.append(" seconds");
   }
@@ -596,7 +598,7 @@ public class Redwood  {
     supportsAnsi = Boolean.getBoolean("Ansi") || isUnix;
   }
 
-  /**
+  /*
    * Set up the default logger.
    * If SLF4J is in the code's classpath
    */
@@ -604,6 +606,7 @@ public class Redwood  {
     RedwoodConfiguration config = RedwoodConfiguration.minimal();
     try {
       MetaClass.create("org.slf4j.LoggerFactory").createInstance();
+      MetaClass.create("edu.stanford.nlp.util.logging.SLF4JHandler").createInstance();
       config = RedwoodConfiguration.slf4j();
     } catch (Exception ignored) { }
     config.apply();
@@ -922,7 +925,7 @@ public class Redwood  {
   }
 
   /**
-   * Handler which prints to a specified file
+   * Handler which prints to a specified file.
    * TODO: make constructors for other ways of describing files (File, for example!)
    */
   public static class FileHandler extends OutputHandler {
@@ -947,7 +950,7 @@ public class Redwood  {
   /**
    * A utility class for Redwood intended for static import
    * (import static edu.stanford.nlp.util.logging.Redwood.Util.*;),
-   * providing a wrapper for Redwood functions and adding utility shortcuts
+   * providing a wrapper for Redwood functions and adding utility shortcuts.
    */
   @SuppressWarnings("UnusedDeclaration")
   public static class Util {
@@ -1303,21 +1306,20 @@ public class Redwood  {
 
 
 
-
-
-
   /**
-   * Various informal tests of Redwood functionality
-   * @param args Unused
+   * Various informal tests of Redwood functionality.
    *
+   * @param args Unused
    */
   // TODO(gabor) update this with the new RedwoodConfiguration
   @SuppressWarnings("deprecation")
   public static void main(String[] args){
 
-    Redwood.log(Redwood.DBG, "hello world!");
-    Redwood.hideChannelsEverywhere(Redwood.DBG);
-    Redwood.log(Redwood.DBG, "hello debug!");
+    RedwoodConfiguration.current().listenOnChannels(record -> {
+      System.out.println(">>> " + record.content.toString());
+    }, Redwood.ERR).apply();
+    Redwood.log("hello world!");
+    Redwood.log(Redwood.ERR, "an error!");
 
     System.exit(1);
 
@@ -1505,7 +1507,7 @@ public class Redwood  {
     } catch (InterruptedException e) {
       throw new RuntimeInterruptedException(e);
     }
-		throw new IllegalArgumentException();
+    throw new IllegalArgumentException();
   } // end main()
 
 }

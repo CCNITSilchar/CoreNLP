@@ -5,6 +5,7 @@ import edu.stanford.nlp.ling.CoreAnnotations;
 import edu.stanford.nlp.ling.tokensregex.*;
 import edu.stanford.nlp.pipeline.ChunkAnnotationUtils;
 import edu.stanford.nlp.util.CoreMap;
+import edu.stanford.nlp.util.StringUtils;
 import edu.stanford.nlp.util.logging.Redwood;
 
 import java.text.SimpleDateFormat;
@@ -23,39 +24,36 @@ public class TimeExpressionExtractorImpl implements TimeExpressionExtractor {
   private static final Redwood.RedwoodChannels logger = Redwood.channels(TimeExpressionExtractorImpl.class);
 
   // Patterns for extracting time expressions
-  TimeExpressionPatterns timexPatterns;
+  private TimeExpressionPatterns timexPatterns;
 
-  CoreMapExpressionExtractor expressionExtractor;
+  private CoreMapExpressionExtractor expressionExtractor;
 
   // Options
-  Options options;
+  private Options options;
 
-  public TimeExpressionExtractorImpl()
-  {
+  public TimeExpressionExtractorImpl() {
     init(new Options());
   }
 
-  public TimeExpressionExtractorImpl(String name, Properties props)
-  {
+  public TimeExpressionExtractorImpl(String name, Properties props) {
     init(name, props);
   }
 
   @Override
-  public void init(String name, Properties props)
-  {
+  public void init(String name, Properties props) {
     init(new Options(name, props));
   }
 
   @Override
-  public void init(Options options)
-  {
+  public void init(Options options) {
     this.options = options;
-    NumberNormalizer.setVerbose(options.verbose);
+    // NumberNormalizer.setVerbose(options.verbose); // cdm 2016: Try omitting this: Don't we want to see errors?
     CoreMapExpressionExtractor.setVerbose(options.verbose);
     if (options.grammarFilename == null) {
       options.grammarFilename = Options.DEFAULT_GRAMMAR_FILES;
       logger.warning("Time rules file is not specified: using default rules at " + options.grammarFilename);
     }
+    logger.info("Using following SUTime rules: "+options.grammarFilename);
     timexPatterns = new GenericTimeExpressionPatterns(options);
     this.expressionExtractor = timexPatterns.createExtractor();
   }
@@ -69,10 +67,16 @@ public class TimeExpressionExtractorImpl implements TimeExpressionExtractor {
       if (timeIndex == null) {
         docAnnotation.set(TimeExpression.TimeIndexAnnotation.class, timeIndex = new SUTime.TimeIndex());
       }
-      docDate = docAnnotation.get(CoreAnnotations.DocDateAnnotation.class);
+      // default look for the sentence's forum post date
+      // if it doesn't have one, back off to the document date
+      if (annotation.get(CoreAnnotations.SectionDateAnnotation.class) != null) {
+        docDate = annotation.get(CoreAnnotations.SectionDateAnnotation.class);
+      } else {
+        docDate = docAnnotation.get(CoreAnnotations.DocDateAnnotation.class);
+      }
       if (docDate == null) {
         Calendar cal = docAnnotation.get(CoreAnnotations.CalendarAnnotation.class);
-        if(cal == null){
+        if (cal == null) {
           if (options.verbose) {
             logger.warn("WARNING: No document date specified");
           }
@@ -84,7 +88,7 @@ public class TimeExpressionExtractorImpl implements TimeExpressionExtractor {
     } else {
       timeIndex = new SUTime.TimeIndex();
     }
-    if ("".equals(docDate)) {
+    if (StringUtils.isNullOrEmpty(docDate)) {
       docDate = null;
     }
     if (timeIndex.docDate == null && docDate != null) {
@@ -102,14 +106,12 @@ public class TimeExpressionExtractorImpl implements TimeExpressionExtractor {
   }
 
   @Override
-  public List<CoreMap> extractTimeExpressionCoreMaps(CoreMap annotation, String docDate)
-  {
+  public List<CoreMap> extractTimeExpressionCoreMaps(CoreMap annotation, String docDate) {
     SUTime.TimeIndex timeIndex = new SUTime.TimeIndex();
     return extractTimeExpressionCoreMaps(annotation, docDate, timeIndex);
   }
 
-  public List<CoreMap> extractTimeExpressionCoreMaps(CoreMap annotation, String docDate, SUTime.TimeIndex timeIndex)
-  {
+  public List<CoreMap> extractTimeExpressionCoreMaps(CoreMap annotation, String docDate, SUTime.TimeIndex timeIndex) {
     List<TimeExpression> timeExpressions = extractTimeExpressions(annotation, docDate, timeIndex);
     return toCoreMaps(annotation, timeExpressions, timeIndex);
   }
@@ -145,8 +147,8 @@ public class TimeExpressionExtractorImpl implements TimeExpressionExtractor {
           }
         } catch (Exception e) {
           if (options.verbose) {
-            e.printStackTrace();
             logger.warn("Failed to get attributes from " + text + ", timeIndex " + timeIndex);
+            logger.warn(e);
           }
           continue;
         }
@@ -155,8 +157,8 @@ public class TimeExpressionExtractorImpl implements TimeExpressionExtractor {
           timex = Timex.fromMap(text, timexAttributes);
         } catch (Exception e) {
           if (options.verbose) {
-            e.printStackTrace();
             logger.warn("Failed to process timex " + text + " with attributes " + timexAttributes);
+            logger.warn(e);
           }
           continue;
         }
@@ -184,8 +186,13 @@ public class TimeExpressionExtractorImpl implements TimeExpressionExtractor {
 
   public List<TimeExpression> extractTimeExpressions(CoreMap annotation, SUTime.Time refDate, SUTime.TimeIndex timeIndex) {
     if (!annotation.containsKey(CoreAnnotations.NumerizedTokensAnnotation.class)) {
-      List<CoreMap> mergedNumbers = NumberNormalizer.findAndMergeNumbers(annotation);
-      annotation.set(CoreAnnotations.NumerizedTokensAnnotation.class, mergedNumbers);
+      try {
+        List<CoreMap> mergedNumbers = NumberNormalizer.findAndMergeNumbers(annotation);
+        annotation.set(CoreAnnotations.NumerizedTokensAnnotation.class, mergedNumbers);
+      } catch (NumberFormatException e) {
+        logger.warn("Caught bad number: " + e.getMessage());
+        annotation.set(CoreAnnotations.NumerizedTokensAnnotation.class, new ArrayList<>());
+      }
     }
 
     List<? extends MatchedExpression> matchedExpressions = expressionExtractor.extractExpressions(annotation);
@@ -282,8 +289,8 @@ public class TimeExpressionExtractorImpl implements TimeExpressionExtractor {
         }
       } catch (Exception ex) {
         if (options.verbose) {
-          ex.printStackTrace();
           logger.warn("Error resolving " + temporal, ex);
+          logger.warn(ex);
         }
       }
     }

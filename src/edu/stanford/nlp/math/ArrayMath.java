@@ -12,7 +12,7 @@ import edu.stanford.nlp.util.RuntimeInterruptedException;
 import edu.stanford.nlp.util.StringUtils;
 
 /**
- * Class ArrayMath
+ * Methods for operating on numerical arrays as vectors and matrices.
  *
  * @author Teg Grenager
  */
@@ -36,15 +36,17 @@ public class ArrayMath {
    * Generate a range of integers from start (inclusive) to end (exclusive).
    * Similar to the Python range() builtin function.
    *
-   * @param start
-   * @param end
+   * @param start Beginning number (inclusive)
+   * @param end Ending number (exclusive)
    * @return integers from [start...end)
    */
   public static int[] range(int start, int end) {
     assert end > start;
     int len = end - start;
     int[] range = new int[len];
-    for (int i = 0; i < range.length; ++i) range[i] = i+start;
+    for (int i = 0; i < range.length; ++i) {
+      range[i] = i+start;
+    }
     return range;
   }
 
@@ -137,7 +139,7 @@ public class ArrayMath {
   // OPERATIONS WITH SCALAR - DESTRUCTIVE
 
   /**
-   * Increases the values in this array by b. Does it in place.
+   * Increases the values in the first array a by b. Does it in place.
    *
    * @param a The array
    * @param b The amount by which to increase each item
@@ -281,15 +283,21 @@ public class ArrayMath {
 
   public static void pairwiseAddInPlace(float[] to, float[] from) {
     if (to.length != from.length) {
-      throw new RuntimeException("to length:" + to.length + " from length:" + from.length);
+      throw new IllegalArgumentException("to length:" + to.length + " from length:" + from.length);
     }
     for (int i = 0; i < to.length; i++) {
       to[i] = to[i] + from[i];
     }
   }
+
+  /**
+   * Add the two 1d arrays in place of {@code to}.
+   *
+   * @throws java.lang.IllegalArgumentException If {@code to} and {@code from} are not of the same dimensions
+   */
   public static void pairwiseAddInPlace(double[] to, double[] from) {
     if (to.length != from.length) {
-      throw new RuntimeException("to length:" + to.length + " from length:" + from.length);
+      throw new IllegalArgumentException("to length:" + to.length + " from length:" + from.length);
     }
     for (int i = 0; i < to.length; i++) {
       to[i] = to[i] + from[i];
@@ -298,7 +306,7 @@ public class ArrayMath {
 
   public static void pairwiseAddInPlace(double[] to, int[] from) {
     if (to.length != from.length) {
-      throw new RuntimeException();
+      throw new IllegalArgumentException();
     }
     for (int i = 0; i < to.length; i++) {
       to[i] = to[i] + from[i];
@@ -307,12 +315,27 @@ public class ArrayMath {
 
   public static void pairwiseAddInPlace(double[] to, short[] from) {
     if (to.length != from.length) {
-      throw new RuntimeException();
+      throw new IllegalArgumentException();
     }
     for (int i = 0; i < to.length; i++) {
       to[i] = to[i] + from[i];
     }
   }
+
+  /**
+   * Add the two 2d arrays and write the answer in place of {@code m1}.
+   *
+   * @throws IllegalArgumentException If {@code m1} and {@code m2} are not of the same dimensions
+   */
+  public static void addInPlace(double[][] m1, double[][] m2) {
+    if (m1.length != m2.length) {
+      throw new IllegalArgumentException();
+    }
+    for (int i = 0; i < m1.length; i++) {
+      pairwiseAddInPlace(m1[i], m2[i]);
+    }
+  }
+
 
   public static void pairwiseSubtractInPlace(double[] to, double[] from) {
     if (to.length != from.length) {
@@ -580,7 +603,7 @@ public class ArrayMath {
   // VECTOR PROPERTIES
 
   /**
-   * Returns the sum of an array of numbers.
+   * Returns the sum of an array of doubles.
    */
   public static double sum(double[] a) {
     return sum(a,0,a.length);
@@ -588,8 +611,8 @@ public class ArrayMath {
 
   /**
    * Returns the sum of the portion of an array of numbers between
-   * <code>fromIndex</code>, inclusive, and <code>toIndex</code>, exclusive.
-   * Returns 0 if <code>fromIndex</code> &gt;= <code>toIndex</code>.
+   * {@code fromIndex}, inclusive, and {@code toIndex}, exclusive.
+   * Returns 0 if {@code fromIndex >= toIndex}.
    */
   public static double sum(double[] a, int fromIndex, int toIndex) {
     double result = 0.0;
@@ -598,7 +621,6 @@ public class ArrayMath {
     }
     return result;
   }
-
 
 
   public static int sum(int[] a) {
@@ -694,9 +716,9 @@ public class ArrayMath {
    * @return 1-norm of a
    */
   public static double norm_1(double[] a) {
-    double sum = 0;
+    double sum = 0.0;
     for (double anA : a) {
-      sum += (anA < 0 ? -anA : anA);
+      sum += Math.abs(anA);
     }
     return sum;
   }
@@ -708,9 +730,9 @@ public class ArrayMath {
    * @return 1-norm of a
    */
   public static double norm_1(float[] a) {
-    double sum = 0;
+    double sum = 0.0;
     for (float anA : a) {
-      sum += (anA < 0 ? -anA : anA);
+      sum += Math.abs(anA);
     }
     return sum;
   }
@@ -723,7 +745,7 @@ public class ArrayMath {
    * @return Euclidean norm of a
    */
   public static double norm(double[] a) {
-    double squaredSum = 0;
+    double squaredSum = 0.0;
     for (double anA : a) {
       squaredSum += anA * anA;
     }
@@ -737,7 +759,7 @@ public class ArrayMath {
    * @return Euclidean norm of a
    */
   public static double norm(float[] a) {
-    double squaredSum = 0;
+    double squaredSum = 0.0;
     for (float anA : a) {
       squaredSum += anA * anA;
     }
@@ -806,7 +828,7 @@ public class ArrayMath {
   }
 
   /**
-   * @return the index of the min value; if min is a tie, returns the first one.
+   * @return the index of the min value; if min is a tie, returns the lowest index one.
    */
   public static int argmin(double[] a) {
     double min = Double.POSITIVE_INFINITY;
@@ -823,8 +845,14 @@ public class ArrayMath {
   /**
    * @return The minimum value in an array.
    */
-  public static double min(double[] a) {
-    return a[argmin(a)];
+  public static double min(double... vector) {
+    double min = Double.POSITIVE_INFINITY;
+    for (double x : vector) {
+      if (x < min) {
+        min = x;
+      }
+    }
+    return min;
   }
 
   /**
@@ -872,9 +900,19 @@ public class ArrayMath {
     return argmin;
   }
 
-  public static int min(int[] a) {
-    return a[argmin(a)];
+  /**
+   * @return the min value.
+   */
+  public static int min(int... vector) {
+    int min = Integer.MAX_VALUE;
+    for (int x : vector) {
+      if (x < min) {
+        min = x;
+      }
+    }
+    return min;
   }
+
 
   /**
    * @return the index of the max value; if max is a tie, returns the first one.
@@ -891,9 +929,19 @@ public class ArrayMath {
     return argmax;
   }
 
-  public static int max(int[] a) {
-    return a[argmax(a)];
+  /**
+   * @return the index of the max value; if max is a tie, returns the first one.
+   */
+  public static int max(int... vector) {
+    int max = Integer.MIN_VALUE;
+    for (int x : vector) {
+      if (x > max) {
+        max = x;
+      }
+    }
+    return max;
   }
+
 
   /** Returns the smallest element of the matrix */
   public static int min(int[][] matrix) {
@@ -943,15 +991,15 @@ public class ArrayMath {
   }
 
   /**
-   * Returns the log of the portion between <code>fromIndex</code>, inclusive, and
-   * <code>toIndex</code>, exclusive, of an array of numbers, which are
+   * Returns the log of the portion between {@code fromIndex}, inclusive, and
+   * {@code toIndex}, exclusive, of an array of numbers, which are
    * themselves input in log form.  This is all natural logarithms.
    * Reasonable care is taken to do this as efficiently as possible
    * (under the assumption that the numbers might differ greatly in
    * magnitude), with high accuracy, and without numerical overflow.  Throws an
-   * {@link IllegalArgumentException} if <code>logInputs</code> is of length zero.
-   * Otherwise, returns Double.NEGATIVE_INFINITY if <code>fromIndex</code> &gt;=
-   * <code>toIndex</code>.
+   * {@link IllegalArgumentException} if {@code logInputs} is of length zero.
+   * Otherwise, returns Double.NEGATIVE_INFINITY if {@code fromIndex} &gt;=
+   * {@code toIndex}.
    *
    * @param logInputs An array of numbers [log(x1), ..., log(xn)]
    * @param fromIndex The array index to start the sum from
@@ -992,16 +1040,16 @@ public class ArrayMath {
   }
 
   /**
-   * Returns the log of the portion between <code>fromIndex</code>, inclusive, and
-   * <code>toIndex</code>, exclusive, of an array of numbers, which are
+   * Returns the log of the portion between {@code fromIndex}, inclusive, and
+   * {@code toIndex}, exclusive, of an array of numbers, which are
    * themselves input in log form.  This is all natural logarithms.
    * This version incorporates a stride, so you can sum only select numbers.
    * Reasonable care is taken to do this as efficiently as possible
    * (under the assumption that the numbers might differ greatly in
    * magnitude), with high accuracy, and without numerical overflow.  Throws an
-   * {@link IllegalArgumentException} if <code>logInputs</code> is of length zero.
-   * Otherwise, returns Double.NEGATIVE_INFINITY if <code>fromIndex</code> &gt;=
-   * <code>toIndex</code>.
+   * {@link IllegalArgumentException} if {@code logInputs} is of length zero.
+   * Otherwise, returns Double.NEGATIVE_INFINITY if {@code fromIndex} &gt;=
+   * {@code toIndex}.
    *
    * @param logInputs An array of numbers [log(x1), ..., log(xn)]
    * @param fromIndex The array index to start the sum from
@@ -1084,7 +1132,7 @@ public class ArrayMath {
    * magnitude), with high accuracy, and without numerical overflow.
    *
    * @param logInputs An array of numbers [log(x1), ..., log(xn)]
-   * @return log(x1 + ... + xn)
+   * @return {@literal log(x1 + ... + xn)}
    */
   public static float logSum(float[] logInputs) {
     int leng = logInputs.length;
@@ -2063,30 +2111,6 @@ public class ArrayMath {
     }
     return result;
   }
-
-  public static double[][] covariance(double[][] data) {
-    double[] means = new double[data.length];
-    for (int i = 0; i < means.length; i++) {
-      means[i] = mean(data[i]);
-    }
-
-    double[][] covariance = new double[means.length][means.length];
-    for (int i = 0; i < data[0].length; i++) {
-      for (int j = 0; j < means.length; j++) {
-        for (int k = 0; k < means.length; k++) {
-          covariance[j][k] += (means[j]-data[j][i])*(means[k]-data[k][i]);
-        }
-      }
-    }
-
-    for (int i = 0; i < covariance.length; i++) {
-      for (int j = 0; j < covariance[i].length; j++) {
-        covariance[i][j] = Math.sqrt(covariance[i][j])/(data[0].length);
-      }
-    }
-    return covariance;
-  }
-
 
   public static void addMultInto(double[] a, double[] b, double[] c, double d) {
     for (int i=0; i<a.length; i++) {

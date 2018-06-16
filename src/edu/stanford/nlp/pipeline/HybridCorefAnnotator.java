@@ -1,15 +1,16 @@
 package edu.stanford.nlp.pipeline; 
 import edu.stanford.nlp.util.logging.Redwood;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.*;
 
-import edu.stanford.nlp.hcoref.CorefCoreAnnotations;
-import edu.stanford.nlp.hcoref.CorefCoreAnnotations.CorefChainAnnotation;
-import edu.stanford.nlp.hcoref.CorefSystem;
-import edu.stanford.nlp.hcoref.data.CorefChain;
-import edu.stanford.nlp.hcoref.data.CorefChain.CorefMention;
-import edu.stanford.nlp.hcoref.data.Document;
+import edu.stanford.nlp.coref.CorefCoreAnnotations;
+import edu.stanford.nlp.coref.CorefCoreAnnotations.CorefChainAnnotation;
+import edu.stanford.nlp.coref.data.CorefChain;
+import edu.stanford.nlp.coref.data.Document;
+import edu.stanford.nlp.coref.data.CorefChain.CorefMention;
+import edu.stanford.nlp.coref.hybrid.HybridCorefSystem;
 import edu.stanford.nlp.io.IOUtils;
 import edu.stanford.nlp.ling.CoreAnnotation;
 import edu.stanford.nlp.ling.CoreAnnotations;
@@ -24,7 +25,7 @@ public class HybridCorefAnnotator extends TextAnnotationCreator implements Annot
 
   private static final boolean VERBOSE = false;
 
-  private final CorefSystem corefSystem;
+  private final HybridCorefSystem corefSystem;
 
   // for backward compatibility
   private final boolean OLD_FORMAT;
@@ -33,8 +34,8 @@ public class HybridCorefAnnotator extends TextAnnotationCreator implements Annot
     try {
       // Load the default properties
       Properties corefProps = new Properties();
-      try {
-        corefProps.load(IOUtils.readerFromString("edu/stanford/nlp/hcoref/properties/coref-default-dep.properties"));
+      try (BufferedReader reader = IOUtils.readerFromString("edu/stanford/nlp/hcoref/properties/coref-default-dep.properties")){
+        corefProps.load(reader);
       } catch (IOException ignored) { }
       // Add passed properties
       Enumeration<Object> keys = props.keys();
@@ -43,7 +44,7 @@ public class HybridCorefAnnotator extends TextAnnotationCreator implements Annot
         corefProps.setProperty(key, props.getProperty(key));
       }
       // Create coref system
-      corefSystem = new CorefSystem(corefProps);
+      corefSystem = new HybridCorefSystem(corefProps);
       OLD_FORMAT = Boolean.parseBoolean(props.getProperty("oldCorefFormat", "false"));
     } catch (Exception e) {
       log.error("cannot create HybridCorefAnnotator!");

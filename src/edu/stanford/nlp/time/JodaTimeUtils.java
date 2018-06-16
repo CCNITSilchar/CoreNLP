@@ -7,7 +7,9 @@ import org.joda.time.field.OffsetDateTimeField;
 import org.joda.time.field.RemainderDateTimeField;
 import org.joda.time.field.ScaledDurationField;
 
+import java.time.ZoneId;
 import java.util.Set;
+import java.util.TimeZone;
 
 import static org.joda.time.DateTimeFieldType.*;
 import static org.joda.time.DurationFieldType.*;
@@ -25,8 +27,8 @@ public class JodaTimeUtils {
   private JodaTimeUtils() {} // static methods only
 
   // Standard ISO fields
-  private static final Chronology isoUTCChronology = ISOChronology.getInstanceUTC();
-  private static final DateTimeFieldType[] standardISOFields = {
+  protected static final ZoneId UTC = ZoneId.of("UTC");
+  protected static final DateTimeFieldType[] standardISOFields = {
           DateTimeFieldType.year(),
           DateTimeFieldType.monthOfYear(),
           DateTimeFieldType.dayOfMonth(),
@@ -35,8 +37,8 @@ public class JodaTimeUtils {
           DateTimeFieldType.secondOfMinute(),
           DateTimeFieldType.millisOfSecond()
   };
-  private static final DateTimeFieldType[] standardISOWeekFields = {
-          DateTimeFieldType.year(),
+  protected static final DateTimeFieldType[] standardISOWeekFields = {
+          DateTimeFieldType.year(),  // should this be weekyear()?
           DateTimeFieldType.weekOfWeekyear(),
           DateTimeFieldType.dayOfWeek(),
           DateTimeFieldType.hourOfDay(),
@@ -44,12 +46,12 @@ public class JodaTimeUtils {
           DateTimeFieldType.secondOfMinute(),
           DateTimeFieldType.millisOfSecond()
   };
-  private static final DateTimeFieldType[] standardISODateFields = {
+  protected static final DateTimeFieldType[] standardISODateFields = {
           DateTimeFieldType.year(),
           DateTimeFieldType.monthOfYear(),
           DateTimeFieldType.dayOfMonth(),
   };
-  private static final DateTimeFieldType[] standardISOTimeFields = {
+  protected static final DateTimeFieldType[] standardISOTimeFields = {
           DateTimeFieldType.hourOfDay(),
           DateTimeFieldType.minuteOfHour(),
           DateTimeFieldType.secondOfMinute(),
@@ -567,6 +569,15 @@ public class JodaTimeUtils {
       DateTimeFieldType fieldType = p2.getFieldType(i);
       if (msf == null || isMoreSpecific(fieldType, msf, p.getChronology())) {
         if (!p.isSupported(fieldType)) {
+          if (fieldType == DateTimeFieldType.monthOfYear()) {
+            if (p.isSupported(QuarterOfYear)) {
+              p = p.with(DateTimeFieldType.monthOfYear(), (p.get(QuarterOfYear)-1)*3+1);
+              continue;
+            } else if (p.isSupported(HalfYearOfYear)) {
+              p = p.with(DateTimeFieldType.monthOfYear(), (p.get(HalfYearOfYear)-1)*6+1);
+              continue;
+            }
+          }
           p = p.with(fieldType, p2.getValue(i));
         }
       }
@@ -610,14 +621,31 @@ public class JodaTimeUtils {
     }
     return p1;
   }
+
+  public static Partial withWeekYear(Partial p)
+  {
+    Partial res = new Partial();
+    for (int i = 0; i < p.size(); i++) {
+      DateTimeFieldType fieldType = p.getFieldType(i);
+      if (fieldType == DateTimeFieldType.year()) {
+        res = res.with(DateTimeFieldType.weekyear(), p.getValue(i));
+      } else {
+        res = res.with(fieldType, p.getValue(i));
+      }
+    }
+    return res;
+  }
+
   // Resolve dow for p1
   public static Partial resolveDowToDay(Partial p)
   {
     if (p.isSupported(DateTimeFieldType.dayOfWeek())) {
       if (!p.isSupported(DateTimeFieldType.dayOfMonth())) {
-        if (p.isSupported(DateTimeFieldType.weekOfWeekyear()) && p.isSupported(DateTimeFieldType.year())) {
-          Instant t2 = getInstant(p);
-          DateTime t1 = p.toDateTime(t2);
+        if (p.isSupported(DateTimeFieldType.weekOfWeekyear()) && (p.isSupported(DateTimeFieldType.year()))) {
+          // Convert from year to weekyear (to avoid weirdness when the weekyear and year don't match at the beginning of the year)
+          Partial pwy = withWeekYear(p);
+          Instant t2 = getInstant(pwy);
+          DateTime t1 = pwy.toDateTime(t2);
           Partial res = getPartial(t1.toInstant(), EMPTY_ISO_PARTIAL);
           DateTimeFieldType mostSpecific = getMostSpecific(p);
           res = discardMoreSpecificFields(res, mostSpecific.getDurationType());
@@ -627,6 +655,7 @@ public class JodaTimeUtils {
     }
     return p;
   }
+
   // Uses p2 to resolve week for p1
   public static Partial resolveWeek(Partial p1, Partial p2)
   {
@@ -653,6 +682,12 @@ public class JodaTimeUtils {
 
   public static Instant getInstant(Partial p)
   {
+    return getInstant(p, UTC);
+  }
+
+
+  public static Instant getInstant(Partial p, ZoneId timezone)
+  {
     if (p == null) return null;
     int year = p.isSupported(DateTimeFieldType.year())? p.get(DateTimeFieldType.year()):0;
     if (!p.isSupported(DateTimeFieldType.year())) {
@@ -676,7 +711,15 @@ public class JodaTimeUtils {
     int moh = p.isSupported(DateTimeFieldType.minuteOfHour())? p.get(DateTimeFieldType.minuteOfHour()):0;
     int som = p.isSupported(DateTimeFieldType.secondOfMinute())? p.get(DateTimeFieldType.secondOfMinute()):0;
     int msos = p.isSupported(DateTimeFieldType.millisOfSecond())? p.get(DateTimeFieldType.millisOfSecond()):0;
-    return new DateTime(year, moy, dom, hod, moh, som, msos, isoUTCChronology).toInstant();
+    return new DateTime(year, moy, dom, hod, moh, som, msos, fromTimezone(timezone)).toInstant();
+  }
+
+  private static ISOChronology fromTimezone(ZoneId timezone) {
+    if (timezone == UTC) {
+      return ISOChronology.getInstanceUTC();
+    } else {
+      return ISOChronology.getInstance(DateTimeZone.forTimeZone(TimeZone.getTimeZone(timezone)));  // <-- Jesus Christ, Java...
+    }
   }
 
   public static Partial getPartial(Instant t, Partial p)
@@ -888,7 +931,7 @@ public class JodaTimeUtils {
       if(monthTerminal && monthDiff == 6 && (begin.getMonthOfYear()-1) % 6 == 0){
         //(case: half of year)
         value.append("H").append(( begin.getMonthOfYear()-1) / 6 + 1);
-       }else  if(monthTerminal && monthDiff == 3 && (begin.getMonthOfYear()-1) % 3 == 0){
+      } else if(monthTerminal && monthDiff == 3 && (begin.getMonthOfYear()-1) % 3 == 0){
         //(case: quarter of year)
         value.append("Q").append(( begin.getMonthOfYear()-1) / 3 + 1);
       } else if(monthTerminal && monthDiff == 3 && begin.getMonthOfYear() % 3 == 0){

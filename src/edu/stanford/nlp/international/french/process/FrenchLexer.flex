@@ -1,7 +1,6 @@
 package edu.stanford.nlp.international.french.process;
 
 import java.io.Reader;
-import java.util.logging.Logger;
 import java.util.Properties;
 
 import edu.stanford.nlp.ling.CoreLabel;
@@ -9,11 +8,13 @@ import edu.stanford.nlp.ling.Label;
 import edu.stanford.nlp.ling.CoreAnnotations;
 import edu.stanford.nlp.process.CoreLabelTokenFactory;
 import edu.stanford.nlp.process.LexedTokenFactory;
+import edu.stanford.nlp.process.LexerUtils;
+import edu.stanford.nlp.util.logging.Redwood;
 
 /**
  *  A tokenizer for French. Adapted from PTBTokenizer, but with extra
  *  rules for French orthography.
-
+ *
  *  @author Spence Green
  */
 
@@ -33,7 +34,7 @@ import edu.stanford.nlp.process.LexedTokenFactory;
    * LexedTokenFactory, and can specify the treatment of tokens by boolean
    * options given in a comma separated String
    * (e.g., "invertible,normalizeParentheses=true").
-   * If the String is <code>null</code> or empty, you get the traditional
+   * If the String is {@code null} or empty, you get the traditional
    * PTB3 normalization behaviour (i.e., you get ptb3Escaping=false).  If you
    * want no normalization, then you should pass in the String
    * "ptb3Escaping=false".  The known option names are:
@@ -168,7 +169,9 @@ import edu.stanford.nlp.process.LexedTokenFactory;
   }
 
 
-  private static final Logger LOGGER = Logger.getLogger(FrenchLexer.class.getName());
+  /** A logger for this class */
+  private static final Redwood.RedwoodChannels LOGGER = Redwood.channels(FrenchLexer.class);
+
 
   private LexedTokenFactory<?> tokenFactory;
   private CoreLabel prevWord;
@@ -215,6 +218,7 @@ import edu.stanford.nlp.process.LexedTokenFactory;
   public static final String unicodeEllipsisStr = "\u2026";
   public static final String NEWLINE_TOKEN = "*NL*";
   public static final String COMPOUND_ANNOTATION = "comp";
+  public static final String CONTR_ANNOTATION = "contraction";
 
 
   private Object normalizeFractions(final String in) {
@@ -236,14 +240,6 @@ import edu.stanford.nlp.process.LexedTokenFactory;
       }
     }
     return getNext(out, in);
-  }
-
-  /* Soft hyphens are used to indicate line breaks in
-   * typesetting.
-   */
-  private static String removeSoftHyphens(String in) {
-    String result = in.replaceAll("\u00AD", "");
-    return result.length() == 0 ? "-" : result;
   }
 
   private static String asciiQuotes(String in) {
@@ -283,10 +279,6 @@ import edu.stanford.nlp.process.LexedTokenFactory;
     return s;
   }
 
-  private static String normalizeAmp(final String in) {
-    return in.replaceAll("(?i:&amp;)", "&");
-  }
-
   private Object getNext() {
     final String txt = yytext();
     return getNext(txt, txt);
@@ -301,7 +293,7 @@ import edu.stanford.nlp.process.LexedTokenFactory;
   }
 
   private Object getNext(String txt, String originalText, String annotation) {
-    txt = removeSoftHyphens(txt);
+    txt = LexerUtils.removeSoftHyphens(txt);
     Label w = (Label) tokenFactory.makeToken(txt, yychar, yylength());
     if (invertible || annotation != null) {
       CoreLabel word = (CoreLabel) w;
@@ -323,7 +315,7 @@ import edu.stanford.nlp.process.LexedTokenFactory;
   private Object getNormalizedAmpNext() {
     final String txt = yytext();
     return normalizeAmpersandEntity ?
-      getNext(normalizeAmp(txt), txt) : getNext();
+      getNext(LexerUtils.normalizeAmp(txt), txt) : getNext();
   }
 
 %}
@@ -389,6 +381,15 @@ COMPOUND = {WORD}({HYPHEN}{WORD})+
    Longest usual word in French is 25 characters:
    http://en.wikipedia.org/wiki/Longest_words#French */
 COMPOUND2 = ({CHAR}){3,25}{APOSETCETERA}{WORD}
+
+/* French contractions:
+ *
+ * au => à le
+ * aux => à les
+ * du => de le
+ *
+ */
+CONTRACTION = au|aux|du
 
 /* URLs, email, and Twitter handles
    Technically, Twitter names should be capped at 15 characters.
@@ -484,6 +485,9 @@ cannot			{ yypushback(3) ; return getNext(); }
                           String txt = asciiQuotes(origTxt);
                           return getNext(asciiDash(txt), origTxt);
                         }
+
+{CONTRACTION}           { final String origTxt = yytext();
+                          return getNext(origTxt, origTxt, CONTR_ANNOTATION);}
 
 {COMPOUND} |
 {COMPOUND2}             { final String origTxt = yytext();

@@ -10,7 +10,7 @@ import edu.stanford.nlp.util.Index;
 import edu.stanford.nlp.util.Interval;
 import edu.stanford.nlp.util.Pair;
 import edu.stanford.nlp.util.StringUtils;
-//import edu.stanford.nlp.util.logging.Redwood;
+// import edu.stanford.nlp.util.logging.Redwood;
 
 import org.joda.time.*;
 import org.joda.time.format.DateTimeFormat;
@@ -18,9 +18,19 @@ import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.DateTimeFormatterBuilder;
 
 import java.io.Serializable;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
+import java.time.format.SignStyle;
+import java.time.temporal.ChronoField;
+import java.time.temporal.TemporalAccessor;
+import java.time.temporal.TemporalQueries;
+import java.time.temporal.UnsupportedTemporalTypeException;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static java.time.temporal.ChronoField.*;
 
 /**
  * SUTime is a collection of data structures to represent various temporal
@@ -36,7 +46,8 @@ import java.util.regex.Pattern;
  * </ul>
  *
  * <p>
- * Use {@link TimeAnnotator} to annotate.
+ * Use {@link TimeAnnotator} to annotate documents within an Annotation pipeline such as CoreNLP.
+ * Use {@link SUTimeMain} for standalone testing.
  *
  * @author Angel Chang
  */
@@ -70,7 +81,7 @@ public class SUTime  {
   // time to use for what
   // - news... things happen in the past, so favor resolving to past?
   // - Use heuristics from GUTime to figure out direction to resolve to
-  // - tids for anchortimes...., valueFromFunctions for resolved relative times
+  // - tids for anchor times...., valueFromFunctions for resolved relative times
   // (option to keep some nested times)?
   // 8. Composite time patterns
   // - Composite time operators
@@ -946,6 +957,10 @@ public class SUTime  {
     // PREV: on Thursday, last week = week starting on the monday one week
     // before this monday
     // ??? on Thursday, last week = one week going back starting from now
+    // NEXT: on June 19, next month = July 1 to July 31
+    // ???:  on June 19, next month = July 19 to August 19
+    //
+    //
     // For partial dates: two kind of next
     // next tuesday, next winter, next january
     // NEXT (PARENT UNIT, FAVOR): Example: on monday, next tuesday = tuesday of
@@ -2914,7 +2929,7 @@ public class SUTime  {
       if (getTimeLabel() != null) {
         return getTimeLabel();
       }
-      String s = null;
+      String s; // Initialized below
       if (base != null) {
         // String s = ISODateTimeFormat.basicDateTime().print(base);
         // return s.replace('\ufffd', 'X');
@@ -3536,17 +3551,125 @@ public class SUTime  {
   private static final Pattern PATTERN_ISO_AMBIGUOUS_3 = Pattern.compile(".*(\\d\\d?)\\.(\\d\\d?)\\.(\\d\\d(\\d\\d)?).*");
   private static final Pattern PATTERN_ISO_TIME_OF_DAY = Pattern.compile(".*(\\d?\\d):(\\d\\d)(:(\\d\\d)(\\.\\d+)?)?(\\s*([AP])\\.?M\\.?)?(\\s+([+\\-]\\d+|[A-Z][SD]T|GMT([+\\-]\\d+)?))?.*");
 
+
+  /**
+   * A bunch of formats to parse into
+   */
+  private static final List<java.time.format.DateTimeFormatter> DATE_TIME_FORMATS = Arrays.asList(
+      java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME,
+      java.time.format.DateTimeFormatter.ISO_DATE_TIME,
+      java.time.format.DateTimeFormatter.ISO_ZONED_DATE_TIME,
+      java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME,
+      java.time.format.DateTimeFormatter.ISO_INSTANT,
+      java.time.format.DateTimeFormatter.ISO_OFFSET_DATE,
+      java.time.format.DateTimeFormatter.ISO_DATE,
+      java.time.format.DateTimeFormatter.ISO_LOCAL_DATE,
+      java.time.format.DateTimeFormatter.ISO_OFFSET_DATE,
+      java.time.format.DateTimeFormatter.ISO_LOCAL_TIME,
+      new java.time.format.DateTimeFormatterBuilder()
+          .appendValue(ChronoField.YEAR, 4, 10, SignStyle.EXCEEDS_PAD)
+          .appendValue(MONTH_OF_YEAR, 2)
+          .appendValue(DAY_OF_MONTH, 2)
+          .appendLiteral("T")
+          .appendValue(HOUR_OF_DAY, 2)
+          .appendValue(MINUTE_OF_HOUR, 2)
+          .appendValue(SECOND_OF_MINUTE, 2)
+          .toFormatter(),
+      new java.time.format.DateTimeFormatterBuilder()
+          .appendValue(ChronoField.YEAR, 4, 10, SignStyle.EXCEEDS_PAD)
+          .appendValue(MONTH_OF_YEAR, 2)
+          .appendValue(DAY_OF_MONTH, 2)
+          .appendLiteral("T")
+          .appendValue(HOUR_OF_DAY, 2)
+          .appendValue(MINUTE_OF_HOUR, 2)
+          .appendValue(SECOND_OF_MINUTE, 2)
+          .appendZoneOrOffsetId()
+          .toFormatter(),
+      new java.time.format.DateTimeFormatterBuilder()
+          .appendValue(ChronoField.YEAR, 4, 10, SignStyle.EXCEEDS_PAD)
+          .appendValue(MONTH_OF_YEAR, 2)
+          .appendValue(DAY_OF_MONTH, 2)
+          .toFormatter()
+  );
+
+
+  /**
+   * Try parsing a given string into an {@link Instant} in as many ways as we know how.
+   * Dates will be normalized to the start of their days.
+   *
+   * @param value The instant we are parsing.
+   * @param timezone The timezone, if none is given in the instant.
+   *
+   * @return An instant corresponding to the value, if it could be parsed.
+   */
+  @SuppressWarnings("LoopStatementThatDoesntLoop")
+  public static Optional<java.time.Instant> parseInstant(String value, Optional<ZoneId> timezone) {
+    for (java.time.format.DateTimeFormatter formatter : DATE_TIME_FORMATS) {
+      try {
+        TemporalAccessor datetime = formatter.parse(value);
+        ZoneId parsedTimezone = datetime.query(TemporalQueries.zoneId());
+        ZoneOffset parsedOffset = datetime.query(TemporalQueries.offset());
+        if (parsedTimezone != null) {
+          return Optional.of(java.time.Instant.from(datetime));
+        } else if (parsedOffset != null) {
+          try {
+            return Optional.of(java.time.Instant.ofEpochSecond(datetime.getLong(ChronoField.INSTANT_SECONDS)));
+          } catch (UnsupportedTemporalTypeException e) {
+            return Optional.of(java.time.LocalDate.of(
+                datetime.get(ChronoField.YEAR),
+                datetime.get(ChronoField.MONTH_OF_YEAR),
+                datetime.get(ChronoField.DAY_OF_MONTH)
+            ).atStartOfDay().toInstant(parsedOffset));
+          }
+        } else {
+          if (timezone.isPresent()) {
+            java.time.Instant reference = java.time.LocalDate.of(
+                datetime.get(ChronoField.YEAR),
+                datetime.get(ChronoField.MONTH_OF_YEAR),
+                datetime.get(ChronoField.DAY_OF_MONTH)
+            ).atStartOfDay().toInstant(ZoneOffset.UTC);
+            ZoneOffset currentOffsetForMyZone = timezone.get().getRules().getOffset(reference);
+            try {
+              return Optional.of(java.time.LocalDateTime.of(
+                  datetime.get(ChronoField.YEAR),
+                  datetime.get(ChronoField.MONTH_OF_YEAR),
+                  datetime.get(ChronoField.DAY_OF_MONTH),
+                  datetime.get(ChronoField.HOUR_OF_DAY),
+                  datetime.get(ChronoField.MINUTE_OF_HOUR),
+                  datetime.get(ChronoField.SECOND_OF_MINUTE)
+              ).toInstant(currentOffsetForMyZone));
+            } catch (UnsupportedTemporalTypeException e) {
+              return Optional.of(java.time.LocalDate.of(
+                  datetime.get(ChronoField.YEAR),
+                  datetime.get(ChronoField.MONTH_OF_YEAR),
+                  datetime.get(ChronoField.DAY_OF_MONTH)
+              ).atStartOfDay().toInstant(currentOffsetForMyZone));
+            }
+          }
+        }
+      } catch (DateTimeParseException ignored) { }
+    }
+    return Optional.empty();
+  }
+
+
+
   /**
    * Converts a string that represents some kind of date into ISO 8601 format and
    *  returns it as a SUTime.Time
    *   YYYYMMDDThhmmss
    *
-   * @param dateStr
+   * @param dateStr The serialized date we are parsing to a document date.
    * @param allowPartial (allow partial ISO)
    */
   public static SUTime.Time parseDateTime(String dateStr, boolean allowPartial)
   {
     if (dateStr == null) return null;
+
+    Optional<java.time.Instant> refInstant = parseInstant(dateStr, Optional.empty());
+    if (refInstant.isPresent()) {
+      return new SUTime.GroundedTime(new Instant(refInstant.get().toEpochMilli()));
+    }
 
     Matcher m = PATTERN_ISO.matcher(dateStr);
     if (m.matches()) {
@@ -3738,7 +3861,7 @@ public class SUTime  {
 
   // Duration classes
   /**
-   * A Duration represents a period of time (without endpoints)
+   * A Duration represents a period of time (without endpoints).
    * <br>
    * We have 3 types of durations:
    * <ol>
@@ -3855,11 +3978,12 @@ public class SUTime  {
         Duration halfDuration = this.divideBy(2);
         likelyRange = new Range(refTime.subtract(halfDuration), refTime.add(halfDuration), this);
       }
-      if ((flags & (RESOLVE_TO_FUTURE | RESOLVE_TO_PAST)) != 0) {
-        return new TimeWithRange(likelyRange);
-      }
-      Range r = new Range(minTime, maxTime, this.multiplyBy(2));
-      return new InexactTime(new TimeWithRange(likelyRange), this, r);
+      return new TimeWithRange(likelyRange);
+//      if ((flags & (RESOLVE_TO_FUTURE | RESOLVE_TO_PAST)) != 0) {
+//        return new TimeWithRange(likelyRange);
+//      }
+//      Range r = new Range(minTime, maxTime, this.multiplyBy(2));
+//      return new InexactTime(new TimeWithRange(likelyRange), this, r);
     }
 
     @Override
@@ -4592,9 +4716,33 @@ public class SUTime  {
       return null;
     }
 
+    /**
+     * Checks if the provided range r is within the current range.
+     * Note that equal ranges also returns true.
+     *
+     * @param r range
+     * @return true if range r is contained in r
+     */
     public boolean contains(Range r) {
+      if ((this.beginTime().getJodaTimeInstant().isBefore(r.beginTime().getJodaTimeInstant())
+                      || this.beginTime().getJodaTimeInstant().isEqual(r.beginTime().getJodaTimeInstant()))
+              && (this.endTime().getJodaTimeInstant().isAfter(r.endTime().getJodaTimeInstant())
+                      || this.endTime().getJodaTimeInstant().isEqual(r.endTime().getJodaTimeInstant()))) {
+        return true;
+      }
       return false;
     }
+
+
+    /**
+     * Checks if the provided time is within the current range.
+     * @param t A time to check containment for
+     * @return Returns whether the provided time is within the current range
+     */
+    public boolean contains(Time t) {
+    	return this.getJodaTimeInterval().contains(t.getJodaTimeInstant());
+    }
+
 
     private static final long serialVersionUID = 1;
   }

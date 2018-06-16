@@ -181,8 +181,10 @@ public class Dictionaries {
       "if", "false", "fallacy", "unsuccessfully", "unlikely", "impossible", "improbable", "uncertain", "unsure", "impossibility", "improbability", "cancellation", "breakup", "lack",
       "long-stalled", "end", "rejection", "failure", "avoid", "bar", "block", "break", "cancel", "cease", "cut", "decline", "deny", "deprive", "destroy", "excuse",
       "fail", "forbid", "forestall", "forget", "halt", "lose", "nullify", "prevent", "refrain", "reject", "rebut", "remain", "refuse", "stop", "suspend", "ward"));
-  public final Set<String> neg_relations = Generics.newHashSet(Arrays.asList("prep_without", "prepc_without", "prep_except", "prepc_except", "prep_excluding", "prepx_excluding",
-      "prep_if", "prepc_if", "prep_whether", "prepc_whether", "prep_away_from", "prepc_away_from", "prep_instead_of", "prepc_instead_of"));
+  public final Set<String> neg_relations = Generics.newHashSet(Arrays.asList("nmod:without", "acl:without", "advcl:without",
+      "nmod:except", "acl:except", "advcl:except", "nmod:excluding", "acl:excluding", "advcl:excluding", "nmod:if", "acl:if",
+      "advcl:if", "nmod:whether", "acl:whether", "advcl:whether",  "nmod:away_from", "acl:away_from", "advcl:away_fom",
+      "nmod:instead_of", "acl:instead_of", "advcl:instead_of"));
   public final Set<String> modals = Generics.newHashSet(Arrays.asList("can", "could", "may", "might", "must", "should", "would", "seem",
       "able", "apparently", "necessarily", "presumably", "probably", "possibly", "reportedly", "supposedly",
       "inconceivable", "chance", "impossibility", "improbability", "encouragement", "improbable", "impossible",
@@ -321,12 +323,12 @@ public class Dictionaries {
     if(filename==null) {
       return ;
     }
-    BufferedReader reader = IOUtils.readerFromString(filename);
-    while(reader.ready()) {
-      if(lowercase) resultSet.add(reader.readLine().toLowerCase());
-      else resultSet.add(reader.readLine());
+    try (BufferedReader reader = IOUtils.readerFromString(filename)) {
+      while (reader.ready()) {
+        if (lowercase) resultSet.add(reader.readLine().toLowerCase());
+        else resultSet.add(reader.readLine());
+      }
     }
-    IOUtils.closeIgnoringExceptions(reader);
   }
 
   private void loadAnimacyLists(String animateWordsFile, String inanimateWordsFile) {
@@ -365,12 +367,10 @@ public class Dictionaries {
   }
 
   private void loadCountriesLists(String file) {
-    try{
-      BufferedReader reader = IOUtils.readerFromString(file);
+    try (BufferedReader reader = IOUtils.readerFromString(file)) {
       for (String line; (line = reader.readLine()) != null; ) {
         countries.add(line.split("\t")[1].toLowerCase());
       }
-      reader.close();
     } catch (IOException e) {
       throw new RuntimeIOException(e);
     }

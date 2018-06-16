@@ -1,24 +1,19 @@
 package edu.stanford.nlp.ling.tokensregex.demo;
 
-import edu.stanford.nlp.io.IOUtils;
-import edu.stanford.nlp.ling.CoreAnnotations;
-import edu.stanford.nlp.ling.CoreLabel;
-import edu.stanford.nlp.ling.tokensregex.CoreMapExpressionExtractor;
-import edu.stanford.nlp.ling.tokensregex.MatchedExpression;
-import edu.stanford.nlp.ling.tokensregex.TokenSequencePattern;
-import edu.stanford.nlp.pipeline.Annotation;
-import edu.stanford.nlp.pipeline.StanfordCoreNLP;
-import edu.stanford.nlp.pipeline.TokensRegexAnnotator;
-import edu.stanford.nlp.util.CoreMap;
-import edu.stanford.nlp.util.StringUtils;
-
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.List;
 import java.util.Properties;
 
+import edu.stanford.nlp.io.IOUtils;
+import edu.stanford.nlp.ling.CoreAnnotations;
+import edu.stanford.nlp.ling.CoreLabel;
+import edu.stanford.nlp.pipeline.Annotation;
+import edu.stanford.nlp.pipeline.StanfordCoreNLP;
+import edu.stanford.nlp.util.CoreMap;
+
 /**
- * Demo illustrating how to use TokensRegexAnnotator
+ * Demo illustrating how to use TokensRegexAnnotator.
  */
 public class TokensRegexAnnotatorDemo {
 
@@ -57,8 +52,8 @@ public class TokensRegexAnnotatorDemo {
     // But you can see what is in it with other methods like toShorterString()
     out.println("The top level annotation");
     out.println(annotation.toShorterString());
-    List<CoreMap> sentences = annotation.get(CoreAnnotations.SentencesAnnotation.class);
 
+    List<CoreMap> sentences = annotation.get(CoreAnnotations.SentencesAnnotation.class);
     for (CoreMap sentence : sentences) {
       // NOTE: Depending on what tokensregex rules are specified, there are other annotations
       //       that are of interest other than just the tokens and what we print out here

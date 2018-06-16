@@ -115,6 +115,26 @@ public class Timex implements Serializable {
    */
   private int endPoint;
 
+  /**
+   * Range begin/end/duration
+   * (this is not part of the timex standard and is typically null, available if sutime.includeRange is true)
+   */
+  private Range range;
+
+  public static class Range implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    public String begin;
+    public String end;
+    public String duration;
+
+    public Range(String begin, String end, String duration) {
+      this.begin = begin;
+      this.end = end;
+      this.duration = duration;
+    }
+  }
+
   public String value() {
     return val;
   }
@@ -133,6 +153,10 @@ public class Timex implements Serializable {
 
   public String tid() {
     return tid;
+  }
+
+  public Range range() {
+    return range;
   }
 
   public Timex() {
@@ -173,6 +197,9 @@ public class Timex implements Serializable {
     this.text = text;
     this.beginPoint = beginPoint;
     this.endPoint = endPoint;
+    this.xml = (val == null ? "<TIMEX3/>" :
+        String.format("<TIMEX3 tid=\"%s\" type=\"%s\" value=\"%s\">", this.tid, this.type, this.val)
+            +this.text+"</TIMEX3>");
   }
 
   private void init(Element element) {
@@ -205,13 +232,23 @@ public class Timex implements Serializable {
     this.beginPoint = (beginPoint == null || beginPoint.length() == 0)? -1 : Integer.parseInt(beginPoint.substring(1));
     String endPoint = XMLUtils.getAttribute(element, "endPoint");
     this.endPoint = (endPoint == null || endPoint.length() == 0)? -1 : Integer.parseInt(endPoint.substring(1));
+
+    // Optional range
+    String rangeStr = XMLUtils.getAttribute(element, "range");
+    if (rangeStr != null) {
+      if (rangeStr.startsWith("(") && rangeStr.endsWith(")")) {
+        rangeStr = rangeStr.substring(1, rangeStr.length()-1);
+      }
+      String[] parts = rangeStr.split(",");
+      this.range = new Range(parts.length > 0? parts[0]:"", parts.length > 1? parts[1]:"", parts.length > 2? parts[2]:"");
+    }
   }
 
   public int beginPoint() { return beginPoint; }
   public int endPoint() { return endPoint; }
 
   public String toString() {
-    return this.xml;
+    return (this.xml != null) ? this.xml : this.val;
   }
 
   @Override

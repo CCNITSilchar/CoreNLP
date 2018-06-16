@@ -1,5 +1,6 @@
 package edu.stanford.nlp.pipeline;
 
+import edu.stanford.nlp.util.StringUtils;
 import junit.framework.TestCase;
 
 import java.io.IOException;
@@ -24,13 +25,13 @@ public class JSONOutputterTest extends TestCase {
   private static void testEscape(String input, String expected) {
     assertEquals(1, input.length());  // make sure I'm escaping right
     assertEquals(2, expected.length());  // make sure I'm escaping right
-    assertEquals(expected, JSONOutputter.cleanJSON(input));
+    assertEquals(expected, StringUtils.escapeJsonString(input));
   }
 
   private static void testNoEscape(String input, String expected) {
     assertEquals(1, input.length());  // make sure I'm escaping right
     assertEquals(1, expected.length());  // make sure I'm escaping right
-    assertEquals(expected, JSONOutputter.cleanJSON(input));
+    assertEquals(expected, StringUtils.escapeJsonString(input));
   }
 
   public void testSanitizeJSONString() {
@@ -42,7 +43,7 @@ public class JSONOutputterTest extends TestCase {
     testNoEscape("'", "'");
     testEscape("\"", "\\\"");
     testEscape("\\", "\\\\");
-    assertEquals("\\\\b", JSONOutputter.cleanJSON("\\b"));
+    assertEquals("\\\\b", StringUtils.escapeJsonString("\\b"));
   }
 
   public void testSimpleJSON() {
@@ -92,7 +93,6 @@ public class JSONOutputterTest extends TestCase {
         "\t\"sentences\": [\n" +
         "\t\t{\n" +
         "\t\t\t\"index\": 0,\n" +
-        "\t\t\t\"parse\": \"SENTENCE_SKIPPED_OR_UNPARSABLE\",\n" +
         "\t\t\t\"tokens\": [\n" +
         "\t\t\t\t{\n" +
         "\t\t\t\t\t\"index\": 1,\n" +
@@ -134,7 +134,6 @@ public class JSONOutputterTest extends TestCase {
         "\t\t},\n" +
         "\t\t{\n" +
         "\t\t\t\"index\": 1,\n" +
-        "\t\t\t\"parse\": \"SENTENCE_SKIPPED_OR_UNPARSABLE\",\n" +
         "\t\t\t\"tokens\": [\n" +
         "\t\t\t\t{\n" +
         "\t\t\t\t\t\"index\": 1,\n" +

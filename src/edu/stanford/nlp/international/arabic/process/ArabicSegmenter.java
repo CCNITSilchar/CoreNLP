@@ -1,6 +1,5 @@
 package edu.stanford.nlp.international.arabic.process;
 
-
 import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -30,7 +29,9 @@ import edu.stanford.nlp.sequences.SeqClassifierFlags;
 import edu.stanford.nlp.stats.ClassicCounter;
 import edu.stanford.nlp.stats.Counter;
 import edu.stanford.nlp.trees.Tree;
+import edu.stanford.nlp.util.CollectionUtils;
 import edu.stanford.nlp.util.Generics;
+import edu.stanford.nlp.util.IntPair;
 import edu.stanford.nlp.util.PropertiesUtils;
 import edu.stanford.nlp.util.StringUtils;
 import edu.stanford.nlp.util.concurrent.MulticoreWrapper;
@@ -41,7 +42,7 @@ import edu.stanford.nlp.util.logging.Redwood;
  * Arabic word segmentation model based on conditional random fields (CRF).
  * This is a re-implementation (with extensions) of the model described in
  * (Green and DeNero, 2012).
- * <p>
+ *
  * This package includes a JFlex-based orthographic normalization package
  * that runs on the input prior to processing by the CRF-based segmentation
  * model. The normalization options are configurable, but must be consistent for
@@ -52,7 +53,7 @@ import edu.stanford.nlp.util.logging.Redwood;
 public class ArabicSegmenter implements WordSegmenter, ThreadsafeProcessor<String,String> /* Serializable */  {
 
   /** A logger for this class */
-  private static Redwood.RedwoodChannels log = Redwood.channels(ArabicSegmenter.class);
+  private static final Redwood.RedwoodChannels log = Redwood.channels(ArabicSegmenter.class);
 
   private static final long serialVersionUID = -4791848633597417788L;
 
@@ -112,7 +113,7 @@ public class ArabicSegmenter implements WordSegmenter, ThreadsafeProcessor<Strin
   /**
    * Make an Arabic Segmenter.
    *
-   *  @param props Options for how to tokenize. See the main method of {@see ArabicTokenizer} for details
+   *  @param props Options for how to tokenize. See the main method of {@link ArabicTokenizer} for details
    */
   public ArabicSegmenter(Properties props) {
     isTokenized = props.containsKey(optTokenized);
@@ -243,18 +244,44 @@ public class ArabicSegmenter implements WordSegmenter, ThreadsafeProcessor<Strin
     return SentenceUtils.toWordList(segmentedString.split("\\s+"));
   }
 
-  public String segmentString(String line) {
+  private List<CoreLabel> segmentStringToIOB(String line) {
     List<CoreLabel> tokenList;
     if (tf == null) {
       // Whitespace tokenization.
       tokenList = IOBUtils.StringToIOB(line);
     } else {
       List<CoreLabel> tokens = tf.getTokenizer(new StringReader(line)).tokenize();
-      tokenList = IOBUtils.StringToIOB(tokens, null, false);
+      tokenList = IOBUtils.StringToIOB(tokens, null, false, tf, line);
     }
     IOBUtils.labelDomain(tokenList, domain);
     tokenList = classifier.classify(tokenList);
-    String segmentedString = IOBUtils.IOBToString(tokenList, prefixMarker, suffixMarker);
+    return tokenList;
+  }
+
+  public List<CoreLabel> segmentStringToTokenList(String line) {
+    List<CoreLabel> tokenList = CollectionUtils.makeList();
+    List<CoreLabel> labeledSequence = segmentStringToIOB(line);
+    for (IntPair span : IOBUtils.TokenSpansForIOB(labeledSequence)) {
+      CoreLabel token = new CoreLabel();
+      String text = IOBUtils.IOBToString(labeledSequence, prefixMarker, suffixMarker,
+          span.getSource(), span.getTarget());
+      token.setWord(text);
+      token.setValue(text);
+      token.set(CoreAnnotations.TextAnnotation.class, text);
+      token.set(CoreAnnotations.ArabicSegAnnotation.class, "1");
+      int start = labeledSequence.get(span.getSource()).beginPosition();
+      int end = labeledSequence.get(span.getTarget() - 1).endPosition();
+      token.setOriginalText(line.substring(start, end));
+      token.set(CoreAnnotations.CharacterOffsetBeginAnnotation.class, start);
+      token.set(CoreAnnotations.CharacterOffsetEndAnnotation.class, end);
+      tokenList.add(token);
+    }
+    return tokenList;
+  }
+
+  public String segmentString(String line) {
+    List<CoreLabel> labeledSequence = segmentStringToIOB(line);
+    String segmentedString = IOBUtils.IOBToString(labeledSequence, prefixMarker, suffixMarker);
     return segmentedString;
   }
 
@@ -571,7 +598,7 @@ public class ArabicSegmenter implements WordSegmenter, ThreadsafeProcessor<Strin
         }
 
       } catch (IOException e) {
-        e.printStackTrace();
+        log.warn(e);
       }
 
     } else {
@@ -588,10 +615,10 @@ public class ArabicSegmenter implements WordSegmenter, ThreadsafeProcessor<Strin
    * load from, and if not tries to run training using the given
    * options.
    *
-   * @param options
+   * @param options Properties to specify segmenter behavior
    * @return the trained or loaded model
    */
-  private static ArabicSegmenter getSegmenter(Properties options) {
+  public static ArabicSegmenter getSegmenter(Properties options) {
     ArabicSegmenter segmenter = new ArabicSegmenter(options);
     if (segmenter.flags.inputEncoding == null) {
       segmenter.flags.inputEncoding = System.getProperty("file.encoding");

@@ -14,17 +14,16 @@
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software
-// Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+// along with this program.  If not, see http://www.gnu.org/licenses/ .
 //
 // For more information, bug reports, fixes, contact:
 //    Christopher Manning
-//    Dept of Computer Science, Gates 1A
-//    Stanford CA 94305-9010
+//    Dept of Computer Science, Gates 2A
+//    Stanford CA 94305-9020
 //    USA
 //    Support/Questions: java-nlp-user@lists.stanford.edu
 //    Licensing: java-nlp-support@lists.stanford.edu
-//    http://nlp.stanford.edu/downloads/crf-classifier.shtml
+//    https://nlp.stanford.edu/software/CRF-NER.html
 
 package edu.stanford.nlp.ie;
 
@@ -79,13 +78,14 @@ import edu.stanford.nlp.util.logging.Redwood;
  * <li>Add code to NERFeatureFactory for this feature. First decide which
  *     classes (hidden states) are involved in the feature.  If only the
  *     current class, you add the feature extractor to the
- *     <code>featuresC</code> code, if both the current and previous class,
- *     then <code>featuresCpC</code>, etc.</li>
+ *     {@code featuresC} code, if both the current and previous class,
+ *     then {@code featuresCpC}, etc.</li>
  * </ol>
- * <p> Parameters can be defined using a Properties file
- * (specified on the command-line with <code>-prop</code> <i>propFile</i>),
+ * <p>
+ * Parameters can be defined using a Properties file
+ * (specified on the command-line with {@code -prop} <i>propFile</i>),
  * or directly on the command line. The following properties are recognized:
- * </p>
+ *
  * <table border="1">
  * <tr><td><b>Property Name</b></td><td><b>Type</b></td><td><b>Default Value</b></td><td><b>Description</b></td></tr>
  * <tr><td> loadClassifier </td><td>String</td><td>n/a</td><td>Path to serialized classifier to load</td></tr>
@@ -101,6 +101,7 @@ import edu.stanford.nlp.util.logging.Redwood;
  * <tr><td> dehyphenateNGrams</td><td>boolean</td><td>false</td><td>Remove hyphens before making features from letter n-grams</td></tr>
  * <tr><td> conjoinShapeNGrams</td><td>boolean</td><td>false</td><td>Conjoin word shape and n-gram features</td></tr>
  * <tr><td> useNeighborNGrams</td><td>boolean</td><td>false</td><td>Use letter n-grams for the previous and current words in the CpC clique.  This feature helps languages such as Chinese, but not so much for English</td></tr>
+ * <tr><td> useMoreNeighborNGrams</td><td>boolean</td><td>false</td><td>Use letter n-grams for the previous and next words in the C clique.  This feature helps languages such as Chinese, but not so much for English</td></tr>
  * <tr><td> usePrev</td><td>boolean</td><td>false</td><td>Gives you feature for (pw,c), and together with other options enables other previous features, such as (pt,c) [with useTags)</td></tr>
  * <tr><td> useNext</td><td>boolean</td><td>false</td><td>Gives you feature for (nw,c), and together with other options enables other next features, such as (nt,c) [with useTags)</td></tr>
  * <tr><td> useTags</td><td>boolean</td><td>false</td><td>Gives you features for (t,c), (pt,c) [if usePrev], (nt,c) [if useNext]</td></tr>
@@ -180,14 +181,14 @@ import edu.stanford.nlp.util.logging.Redwood;
  * <tr><td> usePosition</td><td>boolean</td><td>false</td><td>Use combination of position in sentence and class as a feature</td></tr>
  * <tr><td> useBeginSent</td><td>boolean</td><td>false</td><td>Use combination of initial position in sentence and class (and word shape) as a feature.  (Doesn't seem to help.)</td></tr>
  * <tr><td> useDisjShape</td><td>boolean</td><td>false</td><td>Include features giving disjunctions of word shapes anywhere in the left or right disjunctionWidth words (preserving direction but not position)</td></tr>
- * <tr><td> useClassFeature</td><td>boolean</td><td>false</td><td>Include a feature for the class (as a class marginal).  Puts a prior on the classes which is equivalent to how often the feature appeared in the training data.</td></tr>
+ * <tr><td> useClassFeature</td><td>boolean</td><td>false</td><td>Include a feature for the class (as a class marginal).  Puts a prior on the classes which is equivalent to how often the feature appeared in the training data. This is the same thing as having a bias vector or having an always-on feature in a model.</td></tr>
  * <tr><td> useShapeConjunctions</td><td>boolean</td><td>false</td><td>Conjoin shape with tag or position</td></tr>
  * <tr><td> useWordTag</td><td>boolean</td><td>false</td><td>Include word and tag pair features</td></tr>
  * <tr><td> useLastRealWord</td><td>boolean</td><td>false</td><td>Iff the prev word is of length 3 or less, add an extra feature that combines the word two back and the current word's shape. <i>Weird!</i></td></tr>
  * <tr><td> useNextRealWord</td><td>boolean</td><td>false</td><td>Iff the next word is of length 3 or less, add an extra feature that combines the word after next and the current word's shape. <i>Weird!</i></td></tr>
  * <tr><td> useTitle</td><td>boolean</td><td>false</td><td>Match a word against a list of name titles (Mr, Mrs, etc.). Doesn't really seem to help.</td></tr>
  * <tr><td> useTitle2</td><td>boolean</td><td>false</td><td>Match a word against a better list of English name titles (Mr, Mrs, etc.). Still doesn't really seem to help.</td></tr>
- * <tr><td> useDistSim</td><td>boolean</td><td>false</td><td>Load a file of distributional similarity classes (specified by <code>distSimLexicon</code>) and use it for features</td></tr>
+ * <tr><td> useDistSim</td><td>boolean</td><td>false</td><td>Load a file of distributional similarity classes (specified by {@code distSimLexicon}) and use it for features</td></tr>
  * <tr><td> distSimLexicon</td><td>String</td><td></td><td>The file to be loaded for distsim classes.</td></tr>
  * <tr><td> distSimFileFormat</td><td>String</td><td>alexclark</td><td>Files should be formatted as tab separated rows where each row is a word/class pair.  alexclark=word first, terrykoo=class first</td></tr>
  * <tr><td> useOccurrencePatterns</td><td>boolean</td><td>false</td><td>This is a very engineered feature designed to capture multiple references to names.  If the current word isn't capitalized, followed by a non-capitalized word, and preceded by a word with alphabetic characters, it returns NO-OCCURRENCE-PATTERN.  Otherwise, if the previous word is a capitalized NNP, then if in the next 150 words you find this PW-W sequence, you get XY-NEXT-OCCURRENCE-XY, else if you find W you get XY-NEXT-OCCURRENCE-Y.  Similarly for backwards and XY-PREV-OCCURRENCE-XY and XY-PREV-OCCURRENCE-Y.  Else (if the previous word isn't a capitalized NNP), under analogous rules you get one or more of X-NEXT-OCCURRENCE-YX, X-NEXT-OCCURRENCE-XY, X-NEXT-OCCURRENCE-X, X-PREV-OCCURRENCE-YX, X-PREV-OCCURRENCE-XY, X-PREV-OCCURRENCE-X.</td></tr>
@@ -476,12 +477,13 @@ public class NERFeatureFactory<IN extends CoreLabel> extends FeatureFactory<IN> 
     Timing timing = new Timing();
     lexicon = Generics.newHashMap();
     boolean terryKoo = "terryKoo".equals(flags.distSimFileFormat);
+    Pattern p = Pattern.compile(terryKoo ? "\\t" : "\\s+");
     for (String line : ObjectBank.getLineIterator(flags.distSimLexicon,
                                                   flags.inputEncoding)) {
       String word;
       String wordClass;
       if (terryKoo) {
-        String[] bits = line.split("\\t");
+        String[] bits = p.split(line);
         word = bits[1];
         wordClass = bits[0];
         if (flags.distSimMaxBits > 0 && wordClass.length() > flags.distSimMaxBits) {
@@ -489,7 +491,7 @@ public class NERFeatureFactory<IN extends CoreLabel> extends FeatureFactory<IN> 
         }
       } else {
         // "alexClark"
-        String[] bits = line.split("\\s+");
+        String[] bits = p.split(line);
         word = bits[0];
         wordClass = bits[1];
       }
@@ -1323,7 +1325,7 @@ public class NERFeatureFactory<IN extends CoreLabel> extends FeatureFactory<IN> 
         }
       }
 
-      if ((flags.wordShape > WordShapeClassifier.NOWORDSHAPE) || (flags.useShapeStrings)) {
+      if ((flags.wordShape > WordShapeClassifier.NOWORDSHAPE) || flags.useShapeStrings) {
         featuresC.add(cShape + "-TYPE");
         if (flags.useTypeSeqs) {
           featuresC.add(pShape + "-PTYPE");
@@ -1465,7 +1467,7 @@ public class NERFeatureFactory<IN extends CoreLabel> extends FeatureFactory<IN> 
         }
       }
 
-      if ((flags.wordShape > WordShapeClassifier.NOWORDSHAPE) || (flags.useShapeStrings)) {
+      if ((flags.wordShape > WordShapeClassifier.NOWORDSHAPE) || flags.useShapeStrings) {
         featuresC.add(cShape + "-TYPE");
       }
 
@@ -1492,7 +1494,7 @@ public class NERFeatureFactory<IN extends CoreLabel> extends FeatureFactory<IN> 
         featuresC.add(pWord + '-' + nWord + "-SWORDS");
       }
 
-      if ((flags.wordShape > WordShapeClassifier.NOWORDSHAPE) || (flags.useShapeStrings)) {
+      if ((flags.wordShape > WordShapeClassifier.NOWORDSHAPE) || flags.useShapeStrings) {
         if (flags.useTypeSeqs) {
           featuresC.add(pShape + "-PTYPE");
           featuresC.add(nShape + "-NTYPE");
@@ -1636,6 +1638,7 @@ public class NERFeatureFactory<IN extends CoreLabel> extends FeatureFactory<IN> 
       featuresC.add(c.get(CoreAnnotations.CommonWordsAnnotation.class));
 
     if (flags.useRadical && cWord.length() > 0) {
+      // todo [cdm 2016]: Really all stuff in this file should be fixed to work with codepoints outside BMP
       if (cWord.length() == 1) {
         featuresC.add(RadicalMap.getRadical(cWord.charAt(0)) +
                       "-SINGLE-CHAR-RADICAL");
@@ -1657,28 +1660,62 @@ public class NERFeatureFactory<IN extends CoreLabel> extends FeatureFactory<IN> 
        featuresC.add(s+"-SPLITWORD");
       }
     }
+
+    if (flags.useMoreNeighborNGrams) {
+      int maxLen = pWord.length();
+      if (flags.maxNGramLeng >= 0 && flags.maxNGramLeng < maxLen) {
+        maxLen = flags.maxNGramLeng;
+      }
+      for (int len = 1; len <= maxLen; ++len) {
+        featuresC.add(pWord.substring(0, len) + "-PREV-PREFIX");
+      }
+      for (int pos = pWord.length() - maxLen; pos < pWord.length(); ++pos) {
+        featuresC.add(pWord.substring(pos, pWord.length()) +
+                        "-PREV-SUFFIX");
+      }
+
+      maxLen = nWord.length();
+      if (flags.maxNGramLeng >= 0 && flags.maxNGramLeng < maxLen) {
+        maxLen = flags.maxNGramLeng;
+      }
+      for (int len = 1; len <= maxLen; ++len) {
+        featuresC.add(nWord.substring(0, len) + "-NEXT-PREFIX");
+      }
+      for (int pos = nWord.length() - maxLen; pos < nWord.length(); ++pos) {
+        featuresC.add(nWord.substring(pos, nWord.length()) +
+                        "-NEXT-SUFFIX");
+      }
+    }
+
     return featuresC;
   } // end featuresC()
+
 
   /**
    * Binary feature annotations
    */
   private static class Bin1Annotation implements CoreAnnotation<String> {
+    @Override
     public Class<String> getType() {  return String.class; } }
 
   private static class Bin2Annotation implements CoreAnnotation<String> {
+    @Override
     public Class<String> getType() {  return String.class; } }
 
   private static class Bin3Annotation implements CoreAnnotation<String> {
+    @Override
     public Class<String> getType() {  return String.class; } }
 
   private static class Bin4Annotation implements CoreAnnotation<String> {
+    @Override
     public Class<String> getType() {  return String.class; } }
 
   private static class Bin5Annotation implements CoreAnnotation<String> {
+    @Override
     public Class<String> getType() {  return String.class; } }
 
   private static class Bin6Annotation implements CoreAnnotation<String> {
+    @Override
     public Class<String> getType() {  return String.class; } }
 
 
@@ -2192,7 +2229,7 @@ public class NERFeatureFactory<IN extends CoreLabel> extends FeatureFactory<IN> 
   }
 
 
-  int reverse(int i) {
+  private int reverse(int i) {
     return (flags.useReverse ? -1 * i : i);
   }
 
@@ -2263,7 +2300,7 @@ public class NERFeatureFactory<IN extends CoreLabel> extends FeatureFactory<IN> 
     return l;
   }
 
-  String intern(String s) {
+  private String intern(String s) {
     if (flags.intern) {
       return s.intern();
     } else {
@@ -2271,15 +2308,15 @@ public class NERFeatureFactory<IN extends CoreLabel> extends FeatureFactory<IN> 
     }
   }
 
-  public void initGazette() {
+  private void initGazette() {
     try {
       // read in gazettes
       if (flags.gazettes == null) { flags.gazettes = new ArrayList<>(); }
       List<String> gazettes = flags.gazettes;
       for (String gazetteFile : gazettes) {
-        BufferedReader r = IOUtils.readerFromString(gazetteFile, flags.inputEncoding);
-        readGazette(r);
-        r.close();
+        try (BufferedReader r = IOUtils.readerFromString(gazetteFile, flags.inputEncoding)) {
+          readGazette(r);
+        }
       }
     } catch (IOException e) {
       throw new RuntimeIOException(e);

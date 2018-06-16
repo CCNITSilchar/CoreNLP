@@ -9,12 +9,7 @@ import java.net.InetAddress;
 import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.net.URLConnection;
-import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.Charset;
-import java.nio.charset.CharsetDecoder;
 import java.util.*;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
@@ -32,15 +27,13 @@ import java.util.zip.GZIPOutputStream;
 
 public class IOUtils  {
 
-  /** A logger for this class */
-  private static final Redwood.RedwoodChannels log = Redwood.channels(IOUtils.class);
-
   private static final int SLURP_BUFFER_SIZE = 16384;
 
   public static final String eolChar = System.lineSeparator();  // todo: Inline
   public static final String defaultEncoding = "utf-8";
 
-  private static Redwood.RedwoodChannels logger = Redwood.channels(IOUtils.class);
+  /** A logger for this class */
+  private static final Redwood.RedwoodChannels logger = Redwood.channels(IOUtils.class);
 
   // A class of static methods
   private IOUtils() { }
@@ -110,7 +103,7 @@ public class IOUtils  {
       oos.writeObject(o);
       oos.close();
     } catch (Exception e) {
-      e.printStackTrace();
+      logger.err(throwableToStackTrace(e));
     } finally {
       closeIgnoringExceptions(oos);
     }
@@ -145,7 +138,7 @@ public class IOUtils  {
       return writeObjectToTempFile(o, filename);
     } catch (Exception e) {
       logger.error("Error writing object to file " + filename);
-      e.printStackTrace();
+      logger.err(throwableToStackTrace(e));
       return null;
     }
   }
@@ -175,14 +168,6 @@ public class IOUtils  {
   }
 
   /**
-   * Writes a string to a file, as UTF-8.
-   *
-   * @param contents The string to write
-   * @param path The file path
-   * @throws IOException In case of failure
-   */
-
-  /**
    * Writes a string to a file, squashing exceptions
    *
    * @param contents The string to write
@@ -199,14 +184,14 @@ public class IOUtils  {
       }
       writer.write(contents.getBytes(encoding));
     } catch (Exception e) {
-      e.printStackTrace();
+      logger.err(throwableToStackTrace(e));
     } finally {
       closeIgnoringExceptions(writer);
     }
   }
 
   /**
-   * Writes a string to a temporary file
+   * Writes a string to a temporary file.
    *
    * @param contents The string to write
    * @param path The file path
@@ -223,6 +208,7 @@ public class IOUtils  {
       writer = new BufferedOutputStream(new FileOutputStream(tmp));
     }
     writer.write(contents.getBytes(encoding));
+    writer.close();
     return tmp;
   }
 
@@ -257,7 +243,7 @@ public class IOUtils  {
       }
       writer.write(contents.getBytes(encoding));
     } catch (Exception e) {
-      e.printStackTrace();
+      logger.err(throwableToStackTrace(e));
     } finally {
       closeIgnoringExceptions(writer);
     }
@@ -287,19 +273,17 @@ public class IOUtils  {
    * @return The object read from the file.
    */
   public static <T> T readObjectFromFile(File file) throws IOException,
-      ClassNotFoundException {
-    try {
-      ObjectInputStream ois = new ObjectInputStream(new BufferedInputStream(
-          new GZIPInputStream(new FileInputStream(file))));
+          ClassNotFoundException {
+    try (ObjectInputStream ois = new ObjectInputStream(new BufferedInputStream(
+            new GZIPInputStream(new FileInputStream(file))))) {
       Object o = ois.readObject();
-      ois.close();
       return ErasureUtils.uncheckedCast(o);
     } catch (java.util.zip.ZipException e) {
-      ObjectInputStream ois = new ObjectInputStream(new BufferedInputStream(
-          new FileInputStream(file)));
-      Object o = ois.readObject();
-      ois.close();
-      return ErasureUtils.uncheckedCast(o);
+      try (ObjectInputStream ois = new ObjectInputStream(new BufferedInputStream(
+              new FileInputStream(file)))) {
+        Object o = ois.readObject();
+        return ErasureUtils.uncheckedCast(o);
+      }
     }
   }
 
@@ -321,10 +305,10 @@ public class IOUtils  {
    * @return The object read from the file.
    */
   public static <T> T readObjectFromURLOrClasspathOrFileSystem(String filename) throws IOException, ClassNotFoundException {
-    ObjectInputStream ois = new ObjectInputStream(getInputStreamFromURLOrClasspathOrFileSystem(filename));
-    Object o = ois.readObject();
-    ois.close();
-    return ErasureUtils.uncheckedCast(o);
+    try (ObjectInputStream ois = new ObjectInputStream(getInputStreamFromURLOrClasspathOrFileSystem(filename))) {
+      Object o = ois.readObject();
+      return ErasureUtils.uncheckedCast(o);
+    }
   }
 
   public static <T> T readObjectAnnouncingTimingFromURLOrClasspathOrFileSystem(Redwood.RedwoodChannels log, String msg, String path) {
@@ -372,18 +356,19 @@ public class IOUtils  {
       o = ois.readObject();
       ois.close();
     } catch (IOException | ClassNotFoundException e) {
-      e.printStackTrace();
+      logger.err(throwableToStackTrace(e));
     }
     return ErasureUtils.uncheckedCast(o);
   }
 
   public static int lineCount(String textFileOrUrl) throws IOException {
-    BufferedReader r = readerFromString(textFileOrUrl);
-    int numLines = 0;
-    while (r.readLine() != null) {
-      numLines++;
+    try (BufferedReader r = readerFromString(textFileOrUrl)) {
+      int numLines = 0;
+      while (r.readLine() != null) {
+        numLines++;
+      }
+      return numLines;
     }
-    return numLines;
   }
 
   public static ObjectOutputStream writeStreamFromString(String serializePath)
@@ -400,6 +385,16 @@ public class IOUtils  {
     return oos;
   }
 
+  /**
+   * Returns an ObjectInputStream reading from any of a URL, a CLASSPATH resource, or a file.
+   * The CLASSPATH takes priority over the file system.
+   * This stream is buffered and, if necessary, gunzipped.
+   *
+   * @param filenameOrUrl The String specifying the URL/resource/file to load
+   * @return An ObjectInputStream for loading a resource
+   * @throws RuntimeIOException On any IO error
+   * @throws NullPointerException Input parameter is null
+   */
   public static ObjectInputStream readStreamFromString(String filenameOrUrl)
           throws IOException {
     InputStream is = getInputStreamFromURLOrClasspathOrFileSystem(filenameOrUrl);
@@ -460,11 +455,14 @@ public class IOUtils  {
    * @param textFileOrUrl The String specifying the URL/resource/file to load
    * @return An InputStream for loading a resource
    * @throws IOException On any IO error
+   * @throws NullPointerException Input parameter is null
    */
   public static InputStream getInputStreamFromURLOrClasspathOrFileSystem(String textFileOrUrl)
-    throws IOException {
+          throws IOException, NullPointerException {
     InputStream in;
-    if (textFileOrUrl.matches("https?://.*")) {
+    if (textFileOrUrl == null) {
+      throw new NullPointerException("Attempt to open file with null name");
+    } else if (textFileOrUrl.matches("https?://.*")) {
       URL u = new URL(textFileOrUrl);
       URLConnection uc = u.openConnection();
       in = uc.getInputStream();
@@ -755,16 +753,20 @@ public class IOUtils  {
       }
     }
 
+    @Override
     public Iterator<String> iterator() {
       return new Iterator<String>() {
 
-        protected BufferedReader reader = this.getReader();
+        protected final BufferedReader reader = this.getReader();
         protected String line = this.getLine();
+        private boolean readerOpen = true;
 
+        @Override
         public boolean hasNext() {
           return this.line != null;
         }
 
+        @Override
         public String next() {
           String nextLine = this.line;
           if (nextLine == null) {
@@ -778,6 +780,7 @@ public class IOUtils  {
           try {
             String result = this.reader.readLine();
             if (result == null) {
+              readerOpen = false;
               this.reader.close();
             }
             return result;
@@ -803,12 +806,21 @@ public class IOUtils  {
         }
 
         @Override
-          public void remove() {
+        public void remove() {
           throw new UnsupportedOperationException();
+        }
+
+        protected void finalize() throws Throwable {
+          super.finalize();
+          if (readerOpen) {
+            logger.warn("Forgot to close FileIterable -- closing from finalize()");
+            reader.close();
+          }
         }
       };
     }
-  }
+
+  } // end static class GetLinesIterable
 
   /**
    * Given a reader, returns the lines from the reader as an Iterable.
@@ -1101,6 +1113,7 @@ public class IOUtils  {
 
   /**
    * Returns all the text in the given File as a single String.
+   * If the file's name ends in .gz, it is assumed to be gzipped and is silently uncompressed.
    */
   public static String slurpFile(File file) throws IOException {
     return slurpFile(file, null);
@@ -1108,6 +1121,7 @@ public class IOUtils  {
 
   /**
    * Returns all the text in the given File as a single String.
+   * If the file's name ends in .gz, it is assumed to be gzipped and is silently uncompressed.
    *
    * @param file The file to read from
    * @param encoding The character encoding to assume.  This may be null, and
@@ -1115,7 +1129,7 @@ public class IOUtils  {
    */
   public static String slurpFile(File file, String encoding) throws IOException {
     return IOUtils.slurpReader(IOUtils.encodedInputStreamReader(
-            new FileInputStream(file), encoding));
+            inputStreamFromFile(file), encoding));
   }
 
   /**
@@ -1177,7 +1191,7 @@ public class IOUtils  {
     try {
       return IOUtils.slurpURL(u, encoding);
     } catch (Exception e) {
-      e.printStackTrace();
+      logger.err(throwableToStackTrace(e));
       return null;
     }
   }
@@ -1193,18 +1207,18 @@ public class IOUtils  {
     try {
       is = uc.getInputStream();
     } catch (SocketTimeoutException e) {
-      // e.printStackTrace();
       logger.error("Socket time out; returning empty string.");
+      logger.err(throwableToStackTrace(e));
       return "";
     }
-    BufferedReader br = new BufferedReader(new InputStreamReader(is, encoding));
-    StringBuilder buff = new StringBuilder(SLURP_BUFFER_SIZE); // make biggish
-    for (String temp; (temp = br.readLine()) != null; ) {
-      buff.append(temp);
-      buff.append(lineSeparator);
+    try (BufferedReader br = new BufferedReader(new InputStreamReader(is, encoding))) {
+      StringBuilder buff = new StringBuilder(SLURP_BUFFER_SIZE); // make biggish
+      for (String temp; (temp = br.readLine()) != null; ) {
+        buff.append(temp);
+        buff.append(lineSeparator);
+      }
+      return buff.toString();
     }
-    br.close();
-    return buff.toString();
   }
 
   public static String getUrlEncoding(URLConnection connection) {
@@ -1226,18 +1240,18 @@ public class IOUtils  {
    * Returns all the text at the given URL.
    */
   public static String slurpURL(URL u) throws IOException {
-    String lineSeparator = System.getProperty("line.separator");
     URLConnection uc = u.openConnection();
     String encoding = getUrlEncoding(uc);
     InputStream is = uc.getInputStream();
-    BufferedReader br = new BufferedReader(new InputStreamReader(is, encoding));
-    StringBuilder buff = new StringBuilder(SLURP_BUFFER_SIZE); // make biggish
-    for (String temp; (temp = br.readLine()) != null; ) {
-      buff.append(temp);
-      buff.append(lineSeparator);
+    try (BufferedReader br = new BufferedReader(new InputStreamReader(is, encoding))) {
+      StringBuilder buff = new StringBuilder(SLURP_BUFFER_SIZE); // make biggish
+      String lineSeparator = System.lineSeparator();
+      for (String temp; (temp = br.readLine()) != null; ) {
+        buff.append(temp);
+        buff.append(lineSeparator);
+      }
+      return buff.toString();
     }
-    br.close();
-    return buff.toString();
   }
 
   /**
@@ -1247,7 +1261,7 @@ public class IOUtils  {
     try {
       return slurpURL(u);
     } catch (Exception e) {
-      e.printStackTrace();
+      logger.err(throwableToStackTrace(e));
       return null;
     }
   }
@@ -1262,13 +1276,13 @@ public class IOUtils  {
   /**
    * Returns all the text at the given URL. If the file cannot be read
    * (non-existent, etc.), then and only then the method returns
-   * <code>null</code>.
+   * {@code null}.
    */
   public static String slurpURLNoExceptions(String path) {
     try {
       return slurpURL(path);
     } catch (Exception e) {
-      e.printStackTrace();
+      logger.err(throwableToStackTrace(e));
       return null;
     }
   }
@@ -1310,9 +1324,8 @@ public class IOUtils  {
    * @return The text in the file.
    */
   public static String slurpReader(Reader reader) {
-    BufferedReader r = new BufferedReader(reader);
     StringBuilder buff = new StringBuilder();
-    try {
+    try (BufferedReader r = new BufferedReader(reader)) {
       char[] chars = new char[SLURP_BUFFER_SIZE];
       while (true) {
         int amountRead = r.read(chars, 0, SLURP_BUFFER_SIZE);
@@ -1321,7 +1334,6 @@ public class IOUtils  {
         }
         buff.append(chars, 0, amountRead);
       }
-      r.close();
     } catch (Exception e) {
       throw new RuntimeIOException("slurpReader IO problem", e);
     }
@@ -1362,7 +1374,7 @@ public class IOUtils  {
    * @param quoteChar - character for enclosing strings, defaults to "
    * @param escapeChar - character for escaping quotes appearing in quoted strings; defaults to " (i.e. "" is used for " inside quotes, consistent with Excel)
    * @return a list of maps representing the rows of the csv. The maps' keys are the header strings and their values are the row contents
-   * @throws IOException
+   * @throws IOException If any IO problem
    */
   public static List<Map<String,String>> readCSVWithHeader(String path, char quoteChar, char escapeChar) throws IOException {
     String[] labels = null;
@@ -1555,8 +1567,7 @@ public class IOUtils  {
     return new PrintWriter(new BufferedWriter(new OutputStreamWriter(out, encoding)), true);
   }
 
-  public static InputStream getBZip2PipedInputStream(String filename) throws IOException
-  {
+  public static InputStream getBZip2PipedInputStream(String filename) throws IOException {
     String bzcat = System.getProperty("bzcat", "bzcat");
     Runtime rt = Runtime.getRuntime();
     String cmd = bzcat + " " + filename;
@@ -1568,8 +1579,7 @@ public class IOUtils  {
     return p.getInputStream();
   }
 
-  public static OutputStream getBZip2PipedOutputStream(String filename) throws IOException
-  {
+  public static OutputStream getBZip2PipedOutputStream(String filename) throws IOException {
     return new BZip2PipedOutputStream(filename);
   }
 
@@ -1581,8 +1591,7 @@ public class IOUtils  {
    * @return a set of the entries in column field
    * @throws IOException
    */
-  public static Set<String> readColumnSet(String infile, int field) throws IOException
-  {
+  public static Set<String> readColumnSet(String infile, int field) throws IOException {
     BufferedReader br = IOUtils.getBufferedFileReader(infile);
 
     Set<String> set = Generics.newHashSet();
@@ -1664,9 +1673,8 @@ public class IOUtils  {
       }
       in.close();
       return sb.toString();
-    }
-    catch (IOException e) {
-      e.printStackTrace();
+    } catch (IOException e) {
+      logger.err(throwableToStackTrace(e));
       return null;
     }
   }
@@ -1706,7 +1714,7 @@ public class IOUtils  {
       return lines;
     }
     catch (IOException e) {
-      e.printStackTrace();
+      logger.err(throwableToStackTrace(e));
       return null;
     }
   }
@@ -1916,7 +1924,7 @@ public class IOUtils  {
         // Case: cp -r a b -- b does not exist
         assert trueTarget == target;
         if (!trueTarget.mkdir()) {
-          // cp -r a b -- canot create b as a directory
+          // cp -r a b -- cannot create b as a directory
           throw new IOException("cp: could not create target directory: " + trueTarget);
         }
       }
@@ -2004,7 +2012,7 @@ public class IOUtils  {
     add("/u/nlp"); add("/u/nlp/");
     add("/u/nlp/data"); add("/u/nlp/data/");
     add("/scr"); add("/scr/");
-    add("/scr/nlp/data"); add("/scr/nlp/data/");
+    add("/u/scr/nlp/data"); add("/u/scr/nlp/data/");
   }};
 
   /**
@@ -2091,6 +2099,16 @@ public class IOUtils  {
   /** @see IOUtils#console(String, Consumer) */
   public static void console(Consumer<String> callback) throws IOException {
     console("> ", callback);
+  }
+
+  public static String throwableToStackTrace(Throwable t) {
+    StringBuilder sb = new StringBuilder();
+    sb.append(t).append(eolChar);
+
+    for (StackTraceElement e : t.getStackTrace()) {
+        sb.append("\t at ").append(e).append(eolChar);
+    }
+    return sb.toString();
   }
 
 }

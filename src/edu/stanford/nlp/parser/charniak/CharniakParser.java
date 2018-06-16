@@ -5,42 +5,38 @@ import edu.stanford.nlp.ling.HasWord;
 import edu.stanford.nlp.ling.SentenceUtils;
 import edu.stanford.nlp.trees.Tree;
 import edu.stanford.nlp.util.*;
+import edu.stanford.nlp.util.logging.Redwood;
 
 import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.logging.Logger;
+
 
 /**
- * Runs charniak parser using command line
+ * Runs the Charniak parser via the command line.
  *
  * @author Angel Chang
  */
 public class CharniakParser {
-  private final static Logger logger = Logger.getLogger(CharniakParser.class.getName());
+
+  private static final Redwood.RedwoodChannels logger = Redwood.channels(CharniakParser.class);
 
   private static final String CHARNIAK_DIR = "/u/nlp/packages/bllip-parser/";
   // note: this is actually the parser+reranker (will use 2 CPUs)
-  private static final String CHARNIAK_BIN = CHARNIAK_DIR + "reranking-parser.sh";
-  // this is the self-trained WSJ+NANC model (see McClosky, Charniak, and Johnson (NAACL 2010))
-  private static final String CHARNIAK_PARSING_MODEL = "/u/nlp/packages/bllip-parser-models/selftrained/parser/";
+  private static final String CHARNIAK_BIN = "./parse-50best.sh";
 
-  private final CharniakScoredParsesReaderWriter scoredParsesReaderWriter = new CharniakScoredParsesReaderWriter();
-
+  private String dir = CHARNIAK_DIR;
   private String parserExecutable = CHARNIAK_BIN;
-  private String parserModel = CHARNIAK_PARSING_MODEL;
 
   /** Do not parse sentences larger than this sentence length */
   private int maxSentenceLength = 400;
   private int beamSize = 0;
 
-  public CharniakParser()
-  {
-  }
+  public CharniakParser() {}
 
-  public CharniakParser(String parserExecutable, String parserModel) {
+  public CharniakParser(String dir, String parserExecutable) {
     this.parserExecutable = parserExecutable;
-    this.parserModel = parserModel;
+    this.dir = dir;
   }
 
   public int getBeamSize() {
@@ -59,14 +55,12 @@ public class CharniakParser {
     this.maxSentenceLength = maxSentenceLength;
   }
 
-  public Tree getBestParse(List<? extends HasWord> sentence)
-  {
+  public Tree getBestParse(List<? extends HasWord> sentence) {
     ScoredObject<Tree> scoredParse = getBestScoredParse(sentence);
     return (scoredParse != null)? scoredParse.object():null;
   }
 
-  public ScoredObject<Tree> getBestScoredParse(List<? extends HasWord> sentence)
-  {
+  public ScoredObject<Tree> getBestScoredParse(List<? extends HasWord> sentence) {
     List<ScoredObject<Tree>> kBestParses = getKBestParses(sentence, 1);
     if (kBestParses != null) {
       return kBestParses.get(0);
@@ -74,13 +68,11 @@ public class CharniakParser {
     return null;
   }
 
-  public List<ScoredObject<Tree>> getKBestParses(List<? extends HasWord> sentence, int k)
-  {
+  public List<ScoredObject<Tree>> getKBestParses(List<? extends HasWord> sentence, int k) {
     return getKBestParses(sentence, k, true);
   }
 
-  public List<ScoredObject<Tree>> getKBestParses(List<? extends HasWord> sentence, int k, boolean deleteTempFiles)
-  {
+  public List<ScoredObject<Tree>> getKBestParses(List<? extends HasWord> sentence, int k, boolean deleteTempFiles) {
     try {
       File inFile = File.createTempFile("charniak.", ".in");
       if (deleteTempFiles) inFile.deleteOnExit();
@@ -90,7 +82,7 @@ public class CharniakParser {
       if (deleteTempFiles) errFile.deleteOnExit();
       printSentence(sentence, inFile.getAbsolutePath());
       runCharniak(k, inFile.getAbsolutePath(), outFile.getAbsolutePath(), errFile.getAbsolutePath());
-      Iterable<List<ScoredObject<Tree>>> iter = scoredParsesReaderWriter.readScoredTrees(outFile.getAbsolutePath());
+      Iterable<List<ScoredObject<Tree>>> iter = CharniakScoredParsesReaderWriter.readScoredTrees(outFile.getAbsolutePath());
       if (deleteTempFiles) {
         inFile.delete();
         outFile.delete();
@@ -102,13 +94,12 @@ public class CharniakParser {
     }
   }
 
-  public Iterable<List<ScoredObject<Tree>>> getKBestParses(Iterable<List<? extends HasWord>> sentences, int k)
-  {
+  public Iterable<List<ScoredObject<Tree>>> getKBestParses(Iterable<List<? extends HasWord>> sentences, int k) {
     return getKBestParses(sentences, k, true);
   }
 
-  public Iterable<List<ScoredObject<Tree>>> getKBestParses(Iterable<List<? extends HasWord>> sentences, int k, boolean deleteTempFiles)
-  {
+  public Iterable<List<ScoredObject<Tree>>> getKBestParses(Iterable<List<? extends HasWord>> sentences,
+                                                           int k, boolean deleteTempFiles) {
     try {
       File inFile = File.createTempFile("charniak.", ".in");
       if (deleteTempFiles) inFile.deleteOnExit();
@@ -118,7 +109,7 @@ public class CharniakParser {
       if (deleteTempFiles) errFile.deleteOnExit();
       printSentences(sentences, inFile.getAbsolutePath());
       runCharniak(k, inFile.getAbsolutePath(), outFile.getAbsolutePath(), errFile.getAbsolutePath());
-      Iterable<List<ScoredObject<Tree>>> iter = scoredParsesReaderWriter.readScoredTrees(outFile.getAbsolutePath());
+      Iterable<List<ScoredObject<Tree>>> iter = CharniakScoredParsesReaderWriter.readScoredTrees(outFile.getAbsolutePath());
       if (deleteTempFiles) {
         inFile.delete();
         outFile.delete();
@@ -130,15 +121,13 @@ public class CharniakParser {
     }
   }
 
-  public void printSentence(List<? extends HasWord> sentence, String filename)
-  {
+  public void printSentence(List<? extends HasWord> sentence, String filename) {
     List<List<? extends HasWord>> sentences = new ArrayList<>();
     sentences.add(sentence);
     printSentences(sentences, filename);
   }
 
-  public void printSentences(Iterable<List<? extends HasWord>> sentences, String filename)
-  {
+  public void printSentences(Iterable<List<? extends HasWord>> sentences, String filename) {
     try {
       PrintWriter pw = IOUtils.getPrintWriter(filename);
       for (List<? extends HasWord> sentence:sentences) {
@@ -158,26 +147,15 @@ public class CharniakParser {
     }
   }
 
-  public void runCharniak(int n, String infile, String outfile, String errfile)
-  {
+  public void runCharniak(int n, String infile, String outfile, String errfile) {
     try {
       if (n == 1) n++;  // Charniak does not output score if n = 1?
-      // Options
-      //  -l <maxsentencelength>, should not exceed 400 for normal charniak parser
-      //  -K do not tokenize
-      //  -N <N> N best parsing
-      //  -T <beamsize>
+
       List<String> args = new ArrayList<>();
       args.add(parserExecutable);
-      args.add("-l" + maxSentenceLength);
-      args.add("-K");
-      args.add("-N" + n);
-      if (beamSize > 0) {
-        args.add("-T" + beamSize);
-      }
-      args.add(parserModel);
       args.add(infile);
       ProcessBuilder process = new ProcessBuilder(args);
+      process.directory(new File(this.dir));
       PrintWriter out = IOUtils.getPrintWriter(outfile);
       PrintWriter err = IOUtils.getPrintWriter(errfile);
       SystemUtils.run(process, out, err);
@@ -187,8 +165,5 @@ public class CharniakParser {
       throw new RuntimeException(ex);
     }
   }
-
-
-
 
 }

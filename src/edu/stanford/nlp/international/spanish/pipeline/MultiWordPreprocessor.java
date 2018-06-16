@@ -1,5 +1,4 @@
-package edu.stanford.nlp.international.spanish.pipeline; 
-import edu.stanford.nlp.util.logging.Redwood;
+package edu.stanford.nlp.international.spanish.pipeline;
 
 import java.io.*;
 import java.util.*;
@@ -19,14 +18,15 @@ import edu.stanford.nlp.trees.TreeReaderFactory;
 import edu.stanford.nlp.trees.international.spanish.SpanishTreeReaderFactory;
 import edu.stanford.nlp.trees.international.spanish.SpanishTreeNormalizer;
 import edu.stanford.nlp.util.Generics;
-import edu.stanford.nlp.util.Pair;
 import edu.stanford.nlp.util.PropertiesUtils;
 import edu.stanford.nlp.util.StringUtils;
+import edu.stanford.nlp.util.logging.Redwood;
 
 /**
  * Clean up an AnCora treebank which has been processed to expand multi-word
  * tokens into separate leaves. (This prior splitting task is performed by
- * {@link SpanishTreeNormalizer} through the {@link SpanishXMLTreeReader}
+ * {@link SpanishTreeNormalizer} through the
+ * {@link edu.stanford.nlp.trees.international.spanish.SpanishXMLTreeReader}
  * class).
  *
  * @author Jon Gauthier
@@ -57,21 +57,27 @@ public final class MultiWordPreprocessor  {
    *
    *     (grup.adv (rg cerca) (sp000 de))
    */
-  private static Map<String, String> phrasalCategoryMap = new HashMap<>();
+  private static final Map<String, String> phrasalCategoryMap = new HashMap<>();
   static {
     phrasalCategoryMap.put("ao0000", "grup.a");
     phrasalCategoryMap.put("aq0000", "grup.a");
+    phrasalCategoryMap.put("aqo000", "grup.a");
+    phrasalCategoryMap.put("da0000", "spec");
+    phrasalCategoryMap.put("di0000", "sn");
     phrasalCategoryMap.put("dn0000", "spec");
     phrasalCategoryMap.put("dt0000", "spec");
     phrasalCategoryMap.put("i", "interjeccio");
+    phrasalCategoryMap.put("i00", "interjeccio");
     phrasalCategoryMap.put("rg", "grup.adv");
     phrasalCategoryMap.put("rn", "grup.adv"); // no sólo
+    phrasalCategoryMap.put("vaip000", "grup.verb");
     phrasalCategoryMap.put("vmg0000", "grup.verb");
     phrasalCategoryMap.put("vmic000", "grup.verb");
     phrasalCategoryMap.put("vmii000", "grup.verb");
     phrasalCategoryMap.put("vmif000", "grup.verb");
     phrasalCategoryMap.put("vmip000", "grup.verb");
     phrasalCategoryMap.put("vmis000", "grup.verb");
+    phrasalCategoryMap.put("vmm0000", "grup.verb");
     phrasalCategoryMap.put("vmn0000", "grup.verb");
     phrasalCategoryMap.put("vmp0000", "grup.verb");
     phrasalCategoryMap.put("vmsi000", "grup.verb");
@@ -81,6 +87,8 @@ public final class MultiWordPreprocessor  {
     // New groups (not from AnCora specification)
     phrasalCategoryMap.put("cc", "grup.cc");
     phrasalCategoryMap.put("cs", "grup.cs");
+    phrasalCategoryMap.put("pn000000", "grup.nom");
+    phrasalCategoryMap.put("pi000000", "grup.pron");
     phrasalCategoryMap.put("pr000000", "grup.pron");
     phrasalCategoryMap.put("pt000000", "grup.pron");
     phrasalCategoryMap.put("px000000", "grup.pron");
@@ -94,7 +102,7 @@ public final class MultiWordPreprocessor  {
 
   private static class ManualUWModel {
 
-    private static Map<String, String> posMap = new HashMap<>();
+    private static final Map<String, String> posMap = new HashMap<>();
     static {
       // i.e., "metros cúbicos"
       posMap.put("cúbico", "aq0000");
@@ -455,9 +463,9 @@ public final class MultiWordPreprocessor  {
     // Try treating this word as a verb and stripping any clitic
     // pronouns. If the stripped version exists in the unigram
     // tagger, then stick with the verb hypothesis
-    Pair<String, List<String>> strippedVerb = verbStripper.separatePronouns(word);
-    if (strippedVerb != null && unigramTaggerKeys.contains(strippedVerb.first())) {
-      String pos = Counters.argmax(unigramTagger.getCounter(strippedVerb.first()));
+    SpanishVerbStripper.StrippedVerb strippedVerb = verbStripper.separatePronouns(word);
+    if (strippedVerb != null && unigramTaggerKeys.contains(strippedVerb.getStem())) {
+      String pos = Counters.argmax(unigramTagger.getCounter(strippedVerb.getStem()));
       if (pos.startsWith("v"))
         return pos;
     }
@@ -529,7 +537,7 @@ public final class MultiWordPreprocessor  {
     for(Tree kid : t.children())
       sb.append(kid.value()).append(" ");
     String posSequence = sb.toString().trim();
-    log.info("No phrasal cat for: " + posSequence);
+    log.info("No phrasal cat for: " + posSequence + " (original POS of MWE: " + originalPos + ")");
 
     // Give up.
     return null;
@@ -588,7 +596,7 @@ public final class MultiWordPreprocessor  {
     return sb.toString();
   }
 
-  private static Map<String, Integer> argOptionDefs;
+  private static final Map<String, Integer> argOptionDefs;
   static {
     argOptionDefs = Generics.newHashMap();
     argOptionDefs.put("help", 0);

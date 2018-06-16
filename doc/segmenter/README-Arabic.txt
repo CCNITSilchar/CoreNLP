@@ -1,4 +1,4 @@
-Stanford Arabic Segmenter - v3.6.0 - 2015-12-09
+Stanford Arabic Segmenter - v3.9.1 - 2018-02-27
 --------------------------------------
 
 (c) 2012  The Board of Trustees of The Leland Stanford Junior University.

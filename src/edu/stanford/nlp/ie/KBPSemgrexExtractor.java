@@ -40,16 +40,21 @@ public class KBPSemgrexExtractor implements KBPRelationExtractor {
 
   private final Map<RelationType, Collection<SemgrexPattern> > rules = new HashMap<>();
 
-
   public KBPSemgrexExtractor(String semgrexdir) throws IOException {
-    logger.log("Creating SemgrexRegexExtractor");
+    this(semgrexdir, false);
+  }
+
+  public KBPSemgrexExtractor(String semgrexdir, boolean verbose) throws IOException {
+    if (verbose)
+      logger.log("Creating SemgrexRegexExtractor");
     // Create extractors
     for (RelationType rel : RelationType.values()) {
       String filename = semgrexdir + File.separator + rel.canonicalName.replace("/", "SLASH") + ".rules";
       if (IOUtils.existsInClasspathOrFileSystem(filename)) {
 
         List<SemgrexPattern> rulesforrel = SemgrexBatchParser.compileStream(IOUtils.getInputStreamFromURLOrClasspathOrFileSystem(filename));
-        logger.log("Read " + rulesforrel.size() + " rules from " + filename + " for relation " + rel);
+        if (verbose)
+          logger.log("Read " + rulesforrel.size() + " rules from " + filename + " for relation " + rel);
         rules.put(rel, rulesforrel);
       }
     }
@@ -67,7 +72,7 @@ public class KBPSemgrexExtractor implements KBPRelationExtractor {
         CoreMap sentence = input.sentence.asCoreMap(Sentence::nerTags, Sentence::dependencyGraph);
         boolean matches
             = matches(sentence, rulesForRel, input,
-            sentence.get(SemanticGraphCoreAnnotations.CollapsedCCProcessedDependenciesAnnotation.class)) ||
+            sentence.get(SemanticGraphCoreAnnotations.EnhancedPlusPlusDependenciesAnnotation.class)) ||
             matches(sentence, rulesForRel, input,
                 sentence.get(SemanticGraphCoreAnnotations.AlternativeDependenciesAnnotation.class));
         if (matches) {

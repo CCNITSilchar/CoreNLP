@@ -1,17 +1,20 @@
 package edu.stanford.nlp.ie.util;
 
+import java.text.DecimalFormat;
+import java.util.*;
+import java.util.function.ToIntFunction;
+
 import edu.stanford.nlp.ie.machinereading.structure.Span;
 import edu.stanford.nlp.ling.CoreAnnotations;
 import edu.stanford.nlp.ling.CoreLabel;
 import edu.stanford.nlp.ling.IndexedWord;
 import edu.stanford.nlp.semgraph.SemanticGraph;
 import edu.stanford.nlp.semgraph.SemanticGraphEdge;
-import edu.stanford.nlp.util.*;
 import edu.stanford.nlp.util.PriorityQueue;
+import edu.stanford.nlp.util.*;
 
-import java.text.DecimalFormat;
-import java.util.*;
-import java.util.function.Function;
+import static edu.stanford.nlp.util.logging.Redwood.Util.err;
+
 
 /**
  * A (subject, relation, object) triple; e.g., as used in the KBP challenges or in OpenIE systems.
@@ -20,6 +23,7 @@ import java.util.function.Function;
  */
 @SuppressWarnings("UnusedDeclaration")
 public class RelationTriple implements Comparable<RelationTriple>, Iterable<CoreLabel> {
+
   /** The subject (first argument) of this triple */
   public final List<CoreLabel> subject;
 
@@ -140,7 +144,7 @@ public class RelationTriple implements Comparable<RelationTriple>, Iterable<Core
    * This method will additionally strip out punctuation as well.
    */
    public String subjectLemmaGloss() {
-    return StringUtils.join(canonicalSubject.stream().filter(x -> !x.tag().matches("[\\.\\?,:;'\"!]")).map(x -> x.lemma() == null ? x.word() : x.lemma()), " ");
+    return StringUtils.join(canonicalSubject.stream().filter(x -> !x.tag().matches("[.?,:;'\"!]")).map(x -> x.lemma() == null ? x.word() : x.lemma()), " ");
   }
 
   /** The object of this relation triple, as a String */
@@ -163,7 +167,7 @@ public class RelationTriple implements Comparable<RelationTriple>, Iterable<Core
    * This method will additionally strip out punctuation as well.
    */
   public String objectLemmaGloss() {
-    return StringUtils.join(canonicalObject.stream().filter(x -> !x.tag().matches("[\\.\\?,:;'\"!]")).map(x -> x.lemma() == null ? x.word() : x.lemma()), " ");
+    return StringUtils.join(canonicalObject.stream().filter(x -> !x.tag().matches("[.?,:;'\"!]")).map(x -> x.lemma() == null ? x.word() : x.lemma()), " ");
   }
 
   /**
@@ -194,7 +198,7 @@ public class RelationTriple implements Comparable<RelationTriple>, Iterable<Core
     String relationGloss = (
         (prefixBe ? "be " : "")
         + StringUtils.join(relation.stream()
-            .filter(x -> x.tag() == null || (!x.tag().matches("[\\.\\?,:;'\"!]") && (x.lemma() == null || !x.lemma().matches("[\\.,;'\"\\?!]"))))
+            .filter(x -> x.tag() == null || (!x.tag().matches("[.?,:;'\"!]") && (x.lemma() == null || !x.lemma().matches("[.,;'\"?!]"))))
             .map(x -> x.lemma() == null ? x.word() : x.lemma()),
           " ")
           .toLowerCase()
@@ -210,17 +214,25 @@ public class RelationTriple implements Comparable<RelationTriple>, Iterable<Core
     }
   }
 
+  /** The head of the relation of this relation triple. This is usually the main verb. */
+  public CoreLabel relationHead() {
+    return relation.stream()
+        .filter(x -> x.tag().startsWith("V"))
+        .reduce((x, y) -> y)
+        .orElse(relation.get(relation.size() - 1));
+  }
+
   /** A textual representation of the confidence. */
   public String confidenceGloss() {
     return new DecimalFormat("0.000").format(confidence);
   }
 
-  protected Pair<Integer, Integer> getSpan(List<CoreLabel> tokens, Function<CoreLabel, Integer> toMin, Function<CoreLabel, Integer> toMax) {
+  private static Pair<Integer, Integer> getSpan(List<CoreLabel> tokens, ToIntFunction<CoreLabel> toMin, ToIntFunction<CoreLabel> toMax) {
     int min = Integer.MAX_VALUE;
     int max = Integer.MIN_VALUE;
     for (CoreLabel token : tokens) {
-      min = Math.min(min, toMin.apply(token));
-      max = Math.max(max, toMax.apply(token) + 1);
+      min = Math.min(min, toMin.applyAsInt(token));
+      max = Math.max(max, toMax.applyAsInt(token) + 1);
     }
     return Pair.makePair(min, max);
   }
@@ -233,19 +245,15 @@ public class RelationTriple implements Comparable<RelationTriple>, Iterable<Core
   }
 
   /**
-   * <p>
    *   Get a representative span for the relation expressed by this triple.
-   * </p>
    *
-   * <p>
    *   This is a bit more complicated than the subject and object spans, as the relation
    *   span is occasionally discontinuous.
    *   If this is the case, this method returns the largest contiguous chunk.
    *   If the relation span is empty, return the object span.
-   * </p>
    */
   public Pair<Integer, Integer> relationTokenSpan() {
-    if (relation.size() == 0) {
+    if (relation.isEmpty()) {
       return objectTokenSpan();
     } else if (relation.size() == 1) {
       return Pair.makePair(relation.get(0).index() - 1, relation.get(0).index());
@@ -425,42 +433,74 @@ public class RelationTriple implements Comparable<RelationTriple>, Iterable<Core
 //    return result;
   }
 
-  /** Print a human-readable description of this relation triple, as a tab-separated line */
+  /** Print a human-readable description of this relation triple, as a tab-separated line. */
   @Override
   public String toString() {
-    return "" + this.confidence + "\t" + subjectGloss() + "\t" + relationGloss() + "\t" + objectGloss();
+    return String.valueOf(this.confidence) + '\t' + subjectGloss() + '\t' + relationGloss() + '\t' + objectGloss();
+  }
+
+
+  /** Print in the format expected by Gabriel Stanovsky and Ido Dagan, Creating a Large Benchmark for Open
+   *  Information Extraction, EMNLP 2016. https://gabrielstanovsky.github.io/assets/papers/emnlp16a/paper.pdf ,
+   *  with equivalence classes.
+   */
+  public String toQaSrlString(CoreMap sentence) {
+    String equivalenceClass = subjectHead().index() + "." + relationHead().index() + '.' + objectHead().index();
+    return equivalenceClass + '\t' +
+        subjectGloss().replace('\t', ' ') + '\t' +
+        relationGloss().replace('\t', ' ') + '\t' +
+        objectGloss().replace('\t', ' ') + '\t' +
+        confidence + '\t' +
+        StringUtils.join(sentence.get(CoreAnnotations.TokensAnnotation.class).stream().map(x -> x.word().replace('\t', ' ').replace(" ", "")), " ");
   }
 
   /** Print a description of this triple, formatted like the ReVerb outputs. */
+  @SuppressWarnings("Duplicates")
   public String toReverbString(String docid, CoreMap sentence) {
-    return (docid == null ? "no_doc_id" : docid) + "\t" +
-        relation.get(0).sentIndex() + "\t" +
-        subjectGloss().replace('\t', ' ') + "\t" +
-        relationGloss().replace('\t', ' ') + "\t" +
-        objectGloss().replace('\t', ' ') + "\t" +
-        (subject.get(0).index() - 1) + "\t" +
-        subject.get(subject.size() - 1).index() + "\t" +
-        (relation.get(0).index() - 1) + "\t" +
-        relation.get(relation.size() - 1).index() + "\t" +
-        (object.get(0).index() - 1) + "\t" +
-        object.get(object.size() - 1).index() + "\t" +
-        confidenceGloss() + "\t" +
-        StringUtils.join(sentence.get(CoreAnnotations.TokensAnnotation.class).stream().map(x -> x.word().replace('\t', ' ').replace(" ", "")), " ") + "\t" +
-        StringUtils.join(sentence.get(CoreAnnotations.TokensAnnotation.class).stream().map(CoreLabel::tag), " ") + "\t" +
-        subjectLemmaGloss().replace('\t', ' ') + "\t" +
-        relationLemmaGloss().replace('\t', ' ') + "\t" +
+    int sentIndex = -1;
+    int subjIndex = -1;
+    int relationIndex = -1;
+    int objIndex = -1;
+    int subjIndexEnd = -1;
+    int relationIndexEnd = -1;
+    int objIndexEnd = -1;
+    if (!relation.isEmpty()) {
+      sentIndex = relation.get(0).sentIndex();
+      relationIndex = relation.get(0).index() - 1;
+      relationIndexEnd = relation.get(relation.size() - 1).index();
+    }
+    if ( ! subject.isEmpty()) {
+      if (sentIndex < 0) { sentIndex = subject.get(0).sentIndex(); }
+      subjIndex = subject.get(0).index() - 1;
+      subjIndexEnd = subject.get(subject.size() - 1).index();
+    }
+    if ( ! object.isEmpty()) {
+      if (sentIndex < 0) { sentIndex = subject.get(0).sentIndex(); }
+      objIndex = object.get(0).index() - 1;
+      objIndexEnd = object.get(object.size() - 1).index();
+    }
+    return (docid == null ? "no_doc_id" : docid) + '\t' +
+        sentIndex + '\t' +
+        subjectGloss().replace('\t', ' ') + '\t' +
+        relationGloss().replace('\t', ' ') + '\t' +
+        objectGloss().replace('\t', ' ') + '\t' +
+        subjIndex + '\t' +
+        subjIndexEnd+ '\t' +
+        relationIndex + '\t' +
+        relationIndexEnd + '\t' +
+        objIndex + '\t' +
+        objIndexEnd + '\t' +
+        confidenceGloss() + '\t' +
+        StringUtils.join(sentence.get(CoreAnnotations.TokensAnnotation.class).stream().map(x -> x.word().replace('\t', ' ').replace(" ", "")), " ") + '\t' +
+        StringUtils.join(sentence.get(CoreAnnotations.TokensAnnotation.class).stream().map(CoreLabel::tag), " ") + '\t' +
+        subjectLemmaGloss().replace('\t', ' ') + '\t' +
+        relationLemmaGloss().replace('\t', ' ') + '\t' +
         objectLemmaGloss().replace('\t', ' ');
   }
 
   @Override
   public int compareTo(RelationTriple o) {
-    if (this.confidence < o.confidence) {
-      return -1;
-    } else if (this.confidence > o.confidence) {
-      return 1;
-    } else {
-      return 0;
-    }
+    return Double.compare(this.confidence, o.confidence);
   }
 
   @SuppressWarnings("unchecked")
@@ -508,6 +548,7 @@ public class RelationTriple implements Comparable<RelationTriple>, Iterable<Core
     }
 
     /** The head of the subject of this relation triple. */
+    @Override
     public CoreLabel subjectHead() {
       if (subject.size() == 1) { return subject.get(0); }
       Span subjectSpan = Span.fromValues(subject.get(0).index(), subject.get(subject.size() - 1).index());
@@ -522,6 +563,7 @@ public class RelationTriple implements Comparable<RelationTriple>, Iterable<Core
     }
 
     /** The head of the object of this relation triple. */
+    @Override
     public CoreLabel objectHead() {
       if (object.size() == 1) { return object.get(0); }
       Span objectSpan = Span.fromValues(object.get(0).index(), object.get(object.size() - 1).index());
@@ -533,6 +575,33 @@ public class RelationTriple implements Comparable<RelationTriple>, Iterable<Core
         }
       }
       return object.get(object.size() - 1);
+    }
+
+
+    /** The head of the relation of this relation triple. */
+    @Override
+    public CoreLabel relationHead() {
+      if (relation.size() == 1) { return relation.get(0); }
+      CoreLabel guess = null;
+      CoreLabel newGuess = super.relationHead();
+      int iters = 0;  // make sure we don't infinite loop...
+      while (guess != newGuess && iters < 100) {
+        guess = newGuess;
+        iters += 1;
+        for (SemanticGraphEdge edge : sourceTree.incomingEdgeIterable(new IndexedWord(guess))) {
+          // find a node in the relation list which is a governor of the candidate root
+          Optional<CoreLabel> governor = relation.stream().filter(x -> x.index() == edge.getGovernor().index()).findFirst();
+          // if we found one, this is the new root. The for loop continues
+          if (governor.isPresent()) {
+            newGuess = governor.get();
+          }
+        }
+      }
+      // Return
+      if (iters >= 100) {
+        err("Likely cycle in relation tree");
+      }
+      return guess;
     }
 
     /** {@inheritDoc} */
@@ -567,21 +636,13 @@ public class RelationTriple implements Comparable<RelationTriple>, Iterable<Core
     /** {@inheritDoc} */
     @Override
     public String subjectLink() {
-      if (subjectLink.isPresent()) {
-        return subjectLink.get();
-      } else {
-        return super.subjectLink();
-      }
+      return subjectLink.orElseGet(super::subjectLink);
     }
 
     /** {@inheritDoc} */
     @Override
     public String objectLink() {
-      if (objectLink.isPresent()) {
-        return objectLink.get();
-      } else {
-        return super.objectLink();
-      }
+      return objectLink.orElseGet(super::objectLink);
     }
   }
 

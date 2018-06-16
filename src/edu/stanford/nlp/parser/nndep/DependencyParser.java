@@ -1,5 +1,4 @@
 package edu.stanford.nlp.parser.nndep;
-import edu.stanford.nlp.util.logging.Redwood;
 
 import edu.stanford.nlp.international.Language;
 import edu.stanford.nlp.io.IOUtils;
@@ -26,22 +25,14 @@ import edu.stanford.nlp.trees.UniversalEnglishGrammaticalRelations;
 import edu.stanford.nlp.trees.UniversalEnglishGrammaticalStructure;
 import edu.stanford.nlp.trees.international.pennchinese.ChineseGrammaticalRelations;
 import edu.stanford.nlp.trees.international.pennchinese.ChineseGrammaticalStructure;
-import edu.stanford.nlp.util.CoreMap;
-import edu.stanford.nlp.util.RuntimeInterruptedException;
-import edu.stanford.nlp.util.StringUtils;
-import edu.stanford.nlp.util.Timing;
+import edu.stanford.nlp.util.*;
+import edu.stanford.nlp.util.logging.Redwood;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Writer;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Random;
+import java.util.*;
 
 import static java.util.stream.Collectors.toList;
 
@@ -57,14 +48,18 @@ import static java.util.stream.Collectors.toList;
  *
  * <blockquote>
  *   Danqi Chen and Christopher Manning. A Fast and Accurate Dependency
- *   Parser Using Neural Networks. In EMNLP 2014.
+ *   Parser Using Neural Networks. In <i>EMNLP 2014</i>.
  * </blockquote>
  *
  * <p>
- * New models can be trained from the command line; see {@link #main}
- * for details on training options. This parser will also output
- * CoNLL-X format predictions; again see {@link #main} for available
- * options.
+ * The parser can also be used from the command line to train models and to parse text.
+ * New models can be trained from the command line; see the {@link #main} method
+ * for details on training options. The parser can parse either plain text files or
+ * CoNLL-X format files and output
+ * CoNLL-X format predictions; again see {@link #main} for available options.
+ * (The options available for things like tokenization and sentence splitting
+ * in this class are not as extensive as and not necessarily consistent with
+ * the options of other classes like {@code LexicalizedParser} and {@code StanfordCoreNLP}.
  *
  * <p>
  * This parser can also be used programmatically. The easiest way to
@@ -79,7 +74,7 @@ import static java.util.stream.Collectors.toList;
 public class DependencyParser  {
 
   /** A logger for this class */
-  private static Redwood.RedwoodChannels log = Redwood.channels(DependencyParser.class);
+  private static final Redwood.RedwoodChannels log = Redwood.channels(DependencyParser.class);
   public static final String DEFAULT_MODEL = "edu/stanford/nlp/models/parser/nndep/english_UD.gz";
 
   /**
@@ -89,6 +84,22 @@ public class DependencyParser  {
    * @see #genDictionaries(java.util.List, java.util.List)
    */
   private List<String> knownWords, knownPos, knownLabels;
+
+  /** Return the set of part-of-speech tags of this parser. We normalize it a bit to help it match what
+   *  other parsers use.
+   *
+   *  @return Set of POS tags
+   */
+  public Set<String> getPosSet() {
+    Set<String> foo = Generics.newHashSet(knownPos);
+    // Don't really understand why these ones are there, but remove them. [CDM 2016]
+    foo.remove("-NULL-");
+    foo.remove("-UNKNOWN-");
+    foo.remove("-ROOT-");
+    // but our other models do include an EOS tag
+    foo.add(".$$.");
+    return Collections.unmodifiableSet(foo);
+  }
 
   /**
    * Mapping from word / POS / dependency relation label to integer ID
@@ -394,6 +405,8 @@ public class DependencyParser  {
 
       Writer output = IOUtils.getPrintWriter(modelFile);
 
+      output.write("language=" + language + "\n");
+      output.write("tlp=" + config.tlp.getClass().getCanonicalName() + "\n");
       output.write("dict=" + knownWords.size() + "\n");
       output.write("pos=" + knownPos.size() + "\n");
       output.write("label=" + knownLabels.size() + "\n");
@@ -406,38 +419,26 @@ public class DependencyParser  {
 
       // First write word / POS / label embeddings
       for (String word : knownWords) {
-        output.write(word);
-        for (int k = 0; k < E[index].length; ++k)
-          output.write(" " + E[index][k]);
-        output.write("\n");
-        index = index + 1;
+        index = writeEmbedding(E[index], output, index, word);
       }
       for (String pos : knownPos) {
-        output.write(pos);
-        for (int k = 0; k < E[index].length; ++k)
-          output.write(" " + E[index][k]);
-        output.write("\n");
-        index = index + 1;
+        index = writeEmbedding(E[index], output, index, pos);
       }
       for (String label : knownLabels) {
-        output.write(label);
-        for (int k = 0; k < E[index].length; ++k)
-          output.write(" " + E[index][k]);
-        output.write("\n");
-        index = index + 1;
+        index = writeEmbedding(E[index], output, index, label);
       }
 
       // Now write classifier weights
       for (int j = 0; j < W1[0].length; ++j)
         for (int i = 0; i < W1.length; ++i) {
-          output.write("" + W1[i][j]);
+          output.write(String.valueOf(W1[i][j]));
           if (i == W1.length - 1)
             output.write("\n");
           else
             output.write(" ");
         }
       for (int i = 0; i < b1.length; ++i) {
-        output.write("" + b1[i]);
+        output.write(String.valueOf(b1[i]));
         if (i == b1.length - 1)
           output.write("\n");
         else
@@ -445,7 +446,7 @@ public class DependencyParser  {
       }
       for (int j = 0; j < W2[0].length; ++j)
         for (int i = 0; i < W2.length; ++i) {
-          output.write("" + W2[i][j]);
+          output.write(String.valueOf(W2[i][j]));
           if (i == W2.length - 1)
             output.write("\n");
           else
@@ -454,17 +455,26 @@ public class DependencyParser  {
 
       // Finish with pre-computation info
       for (int i = 0; i < preComputed.size(); ++i) {
-        output.write("" + preComputed.get(i));
+        output.write(String.valueOf(preComputed.get(i)));
         if ((i + 1) % 100 == 0 || i == preComputed.size() - 1)
           output.write("\n");
         else
           output.write(" ");
       }
-
       output.close();
     } catch (IOException e) {
       throw new RuntimeIOException(e);
     }
+  }
+
+  private static int writeEmbedding(double[] doubles, Writer output, int index, String word) throws IOException {
+    output.write(word);
+    for (double aDouble : doubles) {
+      output.write(" " + aDouble);
+    }
+    output.write("\n");
+    index = index + 1;
+    return index;
   }
 
   /**
@@ -498,15 +508,39 @@ public class DependencyParser  {
     loadModelFile(modelFile, true);
   }
 
+  /** helper to check if the model file is new format or not
+   *
+   * @param firstLine the first line of the model file
+   * @return true if this is a new format model file
+   */
+  private static boolean isModelNewFormat(String firstLine) {
+    return firstLine.startsWith("language=");
+  }
+
   private void loadModelFile(String modelFile, boolean verbose) {
     Timing t = new Timing();
-    try {
+    try (BufferedReader input = IOUtils.readerFromString(modelFile)) {
 
-      log.info("Loading depparse model file: " + modelFile + " ... ");
+      log.info("Loading depparse model: " + modelFile + " ... ");
       String s;
-      BufferedReader input = IOUtils.readerFromString(modelFile);
 
+      // first line in newer saved models is language, legacy models don't store this
       s = input.readLine();
+      // check if language was stored
+      if (isModelNewFormat(s)) {
+        // set up language
+        config.language = Config.getLanguage(s.substring(9, s.length() - 1));
+        // set up tlp
+        s = input.readLine();
+        String tlpCanonicalName = s.substring(4, s.length());
+        try {
+          config.tlp = ReflectionLoading.loadByReflection(tlpCanonicalName);
+          log.info("Loaded TreebankLanguagePack: " + tlpCanonicalName);
+        } catch (Exception e) {
+          log.warn("Error: Failed to load TreebankLanguagePack: " + tlpCanonicalName);
+        }
+        s = input.readLine();
+      }
       int nDict = Integer.parseInt(s.substring(s.indexOf('=') + 1));
       s = input.readLine();
       int nPOS = Integer.parseInt(s.substring(s.indexOf('=') + 1));
@@ -584,7 +618,9 @@ public class DependencyParser  {
           preComputed.add(Integer.parseInt(split));
         }
       }
-      input.close();
+
+      config.hiddenSize = hSize;
+      config.embeddingSize = eSize;
       classifier = new Classifier(config, E, W1, b1, W2, preComputed);
     } catch (IOException e) {
       throw new RuntimeIOException(e);
@@ -602,9 +638,7 @@ public class DependencyParser  {
 
     double[][] embeddings = null;
     if (embedFile != null) {
-      BufferedReader input = null;
-      try {
-        input = IOUtils.readerFromString(embedFile);
+      try (BufferedReader input = IOUtils.readerFromString(embedFile)) {
         List<String> lines = new ArrayList<>();
         for (String s; (s = input.readLine()) != null; ) {
           lines.add(s);
@@ -628,8 +662,6 @@ public class DependencyParser  {
         }
       } catch (IOException e) {
         throw new RuntimeIOException(e);
-      } finally {
-        IOUtils.closeIgnoringExceptions(input);
       }
       embeddings = Util.scaling(embeddings, 0, 1.0);
     }
@@ -678,9 +710,8 @@ public class DependencyParser  {
     config.printParameters();
 
     long startTime = System.currentTimeMillis();
-    /**
-     * Track the best UAS performance we've seen.
-     */
+
+    // Track the best UAS performance we've seen.
     double bestUAS = 0;
 
     for (int iter = 0; iter < config.maxIter; ++iter) {
@@ -705,7 +736,7 @@ public class DependencyParser  {
         log.info("UAS: " + uas);
 
         if (config.saveIntermediate && uas > bestUAS) {
-          System.err.printf("Exceeds best previous UAS of %f. Saving model file..%n", bestUAS);
+          log.info("Exceeds best previous UAS of %f. Saving model file.%n", bestUAS);
 
           bestUAS = uas;
           writeModelFile(modelFile);
@@ -728,8 +759,8 @@ public class DependencyParser  {
       double uas = config.noPunc ? system.getUASnoPunc(devSents, predicted, devTrees) : system.getUAS(devSents, predicted, devTrees);
 
       if (uas > bestUAS) {
-        System.err.printf("Final model UAS: %f%n", uas);
-        System.err.printf("Exceeds best previous UAS of %f. Saving model file..%n", bestUAS);
+        log.info(String.format("Final model UAS: %f%n", uas));
+        log.info(String.format("Exceeds best previous UAS of %f. Saving model file..%n", bestUAS));
 
         writeModelFile(modelFile);
       }
@@ -809,10 +840,9 @@ public class DependencyParser  {
     log.info("Found embeddings: " + foundEmbed + " / " + knownWords.size());
 
     if (preModel != null) {
-        try {
+        try (BufferedReader input = IOUtils.readerFromString(preModel)) {
           log.info("Loading pre-trained model file: " + preModel + " ... ");
           String s;
-          BufferedReader input = IOUtils.readerFromString(preModel);
 
           s = input.readLine();
           int nDict = Integer.parseInt(s.substring(s.indexOf('=') + 1));
@@ -890,7 +920,6 @@ public class DependencyParser  {
                   W2[i][j] = Double.parseDouble(splits[i]);
               }
           }
-          input.close();
         } catch (IOException e) {
           throw new RuntimeIOException(e);
         }
@@ -919,9 +948,12 @@ public class DependencyParser  {
       String optTrans = null;
 
       for (int j = 0; j < numTrans; ++j) {
-        if (scores[j] > optScore && system.canApply(c, system.transitions.get(j))) {
-          optScore = scores[j];
-          optTrans = system.transitions.get(j);
+        if (scores[j] > optScore) {
+          String tr = system.transitions.get(j);
+          if (system.canApply(c, tr)) {
+            optScore = scores[j];
+            optTrans = tr;
+          }
         }
       }
       system.apply(c, optTrans);
@@ -1079,21 +1111,21 @@ public class DependencyParser  {
           numOOVWords += 1;
       }
     }
-    System.err.printf("OOV Words: %d / %d = %.2f%%\n", numOOVWords, numWords, numOOVWords * 100.0 / numWords);
+    log.info(String.format("OOV Words: %d / %d = %.2f%%\n", numOOVWords, numWords, numOOVWords * 100.0 / numWords));
 
     List<DependencyTree> predicted = testSents.stream().map(this::predictInner).collect(toList());
     Map<String, Double> result = system.evaluate(testSents, predicted, testTrees);
 
     double uas = config.noPunc ? result.get("UASnoPunc") : result.get("UAS");
     double las = config.noPunc ? result.get("LASnoPunc") : result.get("LAS");
-    System.err.printf("UAS = %.4f%n", uas);
-    System.err.printf("LAS = %.4f%n", las);
+    log.info(String.format("UAS = %.4f%n", uas));
+    log.info(String.format("LAS = %.4f%n", las));
 
     long millis = timer.stop();
     double wordspersec = numWords / (((double) millis) / 1000);
     double sentspersec = numSentences / (((double) millis) / 1000);
-    System.err.printf("%s parsed %d words in %d sentences in %.1fs at %.1f w/s, %.1f sent/s.%n",
-            StringUtils.getShortClassName(this), numWords, numSentences, millis / 1000.0, wordspersec, sentspersec);
+    log.info(String.format("%s parsed %d words in %d sentences in %.1fs at %.1f w/s, %.1f sent/s.%n",
+            StringUtils.getShortClassName(this), numWords, numSentences, millis / 1000.0, wordspersec, sentspersec));
 
     if (outFile != null) {
         Util.writeConllFile(outFile, testSents, predicted);
@@ -1116,8 +1148,8 @@ public class DependencyParser  {
       tagged.add(tagger.tagSentence(sentence));
     }
 
-    System.err.printf("Tagging completed in %.2f sec.%n",
-        timer.stop() / 1000.0);
+    log.info(String.format("Tagging completed in %.2f sec.%n",
+        timer.stop() / 1000.0));
 
     timer.start();
 
@@ -1135,8 +1167,8 @@ public class DependencyParser  {
 
     long millis = timer.stop();
     double seconds = millis / 1000.0;
-    System.err.printf("Parsed %d sentences in %.2f seconds (%.2f sents/sec).%n",
-        numSentences, seconds, numSentences / seconds);
+    log.info(String.format("Parsed %d sentences in %.2f seconds (%.2f sents/sec).%n",
+        numSentences, seconds, numSentences / seconds));
   }
 
   /**
@@ -1180,15 +1212,15 @@ public class DependencyParser  {
    * <ul>
    *   <li>
    *     <strong>Train a parser with CoNLL treebank data:</strong>
-   *     <code>java edu.stanford.nlp.parser.nndep.DependencyParser -trainFile trainPath -devFile devPath -embedFile wordEmbeddingFile -embeddingSize wordEmbeddingDimensionality -model modelOutputFile.txt.gz</code>
+   *     {@code java edu.stanford.nlp.parser.nndep.DependencyParser -trainFile trainPath -devFile devPath -embedFile wordEmbeddingFile -embeddingSize wordEmbeddingDimensionality -model modelOutputFile.txt.gz}
    *   </li>
    *   <li>
    *     <strong>Parse raw text from a file:</strong>
-   *     <code>java edu.stanford.nlp.parser.nndep.DependencyParser -model modelOutputFile.txt.gz -textFile rawTextToParse -outFile dependenciesOutputFile.txt</code>
+   *     {@code java edu.stanford.nlp.parser.nndep.DependencyParser -model modelOutputFile.txt.gz -textFile rawTextToParse -outFile dependenciesOutputFile.txt}
    *   </li>
    *   <li>
    *     <strong>Parse raw text from standard input, writing to standard output:</strong>
-   *     <code>java edu.stanford.nlp.parser.nndep.DependencyParser -model modelOutputFile.txt.gz -textFile - -outFile -</code>
+   *     {@code java edu.stanford.nlp.parser.nndep.DependencyParser -model modelOutputFile.txt.gz -textFile - -outFile -}
    *   </li>
    * </ul>
    *
@@ -1199,41 +1231,41 @@ public class DependencyParser  {
    * Input / output options:
    * <table>
    *   <tr><th>Option</th><th>Required for training</th><th>Required for testing / parsing</th><th>Description</th></tr>
-   *   <tr><td><tt>&#8209;devFile</tt></td><td>Optional</td><td>No</td><td>Path to a development-set treebank in <a href="http://ilk.uvt.nl/conll/#dataformat">CoNLL-X format</a>. If provided, the </td></tr>
-   *   <tr><td><tt>&#8209;embedFile</tt></td><td>Optional (highly recommended!)</td><td>No</td><td>A word embedding file, containing distributed representations of English words. Each line of the provided file should contain a single word followed by the elements of the corresponding word embedding (space-delimited). It is not absolutely necessary that all words in the treebank be covered by this embedding file, though the parser's performance will generally improve if you are able to provide better embeddings for more words.</td></tr>
-   *   <tr><td><tt>&#8209;model</tt></td><td>Yes</td><td>Yes</td><td>Path to a model file. If the path ends in <tt>.gz</tt>, the model will be read as a Gzipped model file. During training, we write to this path; at test time we read a pre-trained model from this path.</td></tr>
-   *   <tr><td><tt>&#8209;textFile</tt></td><td>No</td><td>Yes (or <tt>testFile</tt>)</td><td>Path to a plaintext file containing sentences to be parsed.</td></tr>
-   *   <tr><td><tt>&#8209;testFile</tt></td><td>No</td><td>Yes (or <tt>textFile</tt>)</td><td>Path to a test-set treebank in <a href="http://ilk.uvt.nl/conll/#dataformat">CoNLL-X format</a> for final evaluation of the parser.</td></tr>
-   *   <tr><td><tt>&#8209;trainFile</tt></td><td>Yes</td><td>No</td><td>Path to a training treebank in <a href="http://ilk.uvt.nl/conll/#dataformat">CoNLL-X format</a></td></tr>
+   *   <tr><td><tt>-devFile</tt></td><td>Optional</td><td>No</td><td>Path to a development-set treebank in <a href="http://ilk.uvt.nl/conll/#dataformat">CoNLL-X format</a>. If provided, the dev set performance is monitored during training.</td></tr>
+   *   <tr><td><tt>-embedFile</tt></td><td>Optional (highly recommended!)</td><td>No</td><td>A word embedding file, containing distributed representations of English words. Each line of the provided file should contain a single word followed by the elements of the corresponding word embedding (space-delimited). It is not absolutely necessary that all words in the treebank be covered by this embedding file, though the parser's performance will generally improve if you are able to provide better embeddings for more words.</td></tr>
+   *   <tr><td><tt>-model</tt></td><td>Yes</td><td>Yes</td><td>Path to a model file. If the path ends in <tt>.gz</tt>, the model will be read as a Gzipped model file. During training, we write to this path; at test time we read a pre-trained model from this path.</td></tr>
+   *   <tr><td><tt>-textFile</tt></td><td>No</td><td>Yes (or <tt>testFile</tt>)</td><td>Path to a plaintext file containing sentences to be parsed.</td></tr>
+   *   <tr><td><tt>-testFile</tt></td><td>No</td><td>Yes (or <tt>textFile</tt>)</td><td>Path to a test-set treebank in <a href="http://ilk.uvt.nl/conll/#dataformat">CoNLL-X format</a> for final evaluation of the parser.</td></tr>
+   *   <tr><td><tt>-trainFile</tt></td><td>Yes</td><td>No</td><td>Path to a training treebank in <a href="http://ilk.uvt.nl/conll/#dataformat">CoNLL-X format.</a></td></tr>
    * </table>
    *
    * Training options:
    * <table>
    *   <tr><th>Option</th><th>Default</th><th>Description</th></tr>
-   *   <tr><td><tt>&#8209;adaAlpha</tt></td><td>0.01</td><td>Global learning rate for AdaGrad training</td></tr>
-   *   <tr><td><tt>&#8209;adaEps</tt></td><td>1e-6</td><td>Epsilon value added to the denominator of AdaGrad update expression for numerical stability</td></tr>
-   *   <tr><td><tt>&#8209;batchSize</tt></td><td>10000</td><td>Size of mini-batch used for training</td></tr>
-   *   <tr><td><tt>&#8209;clearGradientsPerIter</tt></td><td>0</td><td>Clear AdaGrad gradient histories every <em>n</em> iterations. If zero, no gradient clearing is performed.</td></tr>
-   *   <tr><td><tt>&#8209;dropProb</tt></td><td>0.5</td><td>Dropout probability. For each training example we randomly choose some amount of units to disable in the neural network classifier. This parameter controls the proportion of units "dropped out."</td></tr>
-   *   <tr><td><tt>&#8209;embeddingSize</tt></td><td>50</td><td>Dimensionality of word embeddings provided</td></tr>
-   *   <tr><td><tt>&#8209;evalPerIter</tt></td><td>100</td><td>Run full UAS (unlabeled attachment score) evaluation every time we finish this number of iterations. (Only valid if a development treebank is provided with <tt>&#8209;devFile</tt>.)</td></tr>
-   *   <tr><td><tt>&#8209;hiddenSize</tt></td><td>200</td><td>Dimensionality of hidden layer in neural network classifier</td></tr>
-   *   <tr><td><tt>&#8209;initRange</tt></td><td>0.01</td><td>Bounds of range within which weight matrix elements should be initialized. Each element is drawn from a uniform distribution over the range <tt>[-initRange, initRange]</tt>.</td></tr>
-   *   <tr><td><tt>&#8209;maxIter</tt></td><td>20000</td><td>Number of training iterations to complete before stopping and saving the final model.</td></tr>
-   *   <tr><td><tt>&#8209;numPreComputed</tt></td><td>100000</td><td>The parser pre-computes hidden-layer unit activations for particular inputs words at both training and testing time in order to speed up feedforward computation in the neural network. This parameter determines how many words for which we should compute hidden-layer activations.</td></tr>
-   *   <tr><td><tt>&#8209;regParameter</tt></td><td>1e-8</td><td>Regularization parameter for training</td></tr>
-   *   <tr><td><tt>&#8209;saveIntermediate</tt></td><td><tt>true</tt></td><td>If <tt>true</tt>, continually save the model version which gets the highest UAS value on the dev set. (Only valid if a development treebank is provided with <tt>&#8209;devFile</tt>.)</td></tr>
-   *   <tr><td><tt>&#8209;trainingThreads</tt></td><td>1</td><td>Number of threads to use during training. Note that depending on training batch size, it may be unwise to simply choose the maximum amount of threads for your machine. On our 16-core test machines: a batch size of 10,000 runs fastest with around 6 threads; a batch size of 100,000 runs best with around 10 threads.</td></tr>
-   *   <tr><td><tt>&#8209;wordCutOff</tt></td><td>1</td><td>The parser can optionally ignore rare words by simply choosing an arbitrary "unknown" feature representation for words that appear with frequency less than <em>n</em> in the corpus. This <em>n</em> is controlled by the <tt>wordCutOff</tt> parameter.</td></tr>
+   *   <tr><td><tt>-adaAlpha</tt></td><td>0.01</td><td>Global learning rate for AdaGrad training</td></tr>
+   *   <tr><td><tt>-adaEps</tt></td><td>1e-6</td><td>Epsilon value added to the denominator of AdaGrad update expression for numerical stability</td></tr>
+   *   <tr><td><tt>-batchSize</tt></td><td>10000</td><td>Size of mini-batch used for training</td></tr>
+   *   <tr><td><tt>-clearGradientsPerIter</tt></td><td>0</td><td>Clear AdaGrad gradient histories every <em>n</em> iterations. If zero, no gradient clearing is performed.</td></tr>
+   *   <tr><td><tt>-dropProb</tt></td><td>0.5</td><td>Dropout probability. For each training example we randomly choose some amount of units to disable in the neural network classifier. This parameter controls the proportion of units "dropped out."</td></tr>
+   *   <tr><td><tt>-embeddingSize</tt></td><td>50</td><td>Dimensionality of word embeddings provided</td></tr>
+   *   <tr><td><tt>-evalPerIter</tt></td><td>100</td><td>Run full UAS (unlabeled attachment score) evaluation every time we finish this number of iterations. (Only valid if a development treebank is provided with <tt>-devFile</tt>.)</td></tr>
+   *   <tr><td><tt>-hiddenSize</tt></td><td>200</td><td>Dimensionality of hidden layer in neural network classifier</td></tr>
+   *   <tr><td><tt>-initRange</tt></td><td>0.01</td><td>Bounds of range within which weight matrix elements should be initialized. Each element is drawn from a uniform distribution over the range <tt>[-initRange, initRange]</tt>.</td></tr>
+   *   <tr><td><tt>-maxIter</tt></td><td>20000</td><td>Number of training iterations to complete before stopping and saving the final model.</td></tr>
+   *   <tr><td><tt>-numPreComputed</tt></td><td>100000</td><td>The parser pre-computes hidden-layer unit activations for particular inputs words at both training and testing time in order to speed up feedforward computation in the neural network. This parameter determines how many words for which we should compute hidden-layer activations.</td></tr>
+   *   <tr><td><tt>-regParameter</tt></td><td>1e-8</td><td>Regularization parameter for training</td></tr>
+   *   <tr><td><tt>-saveIntermediate</tt></td><td><tt>true</tt></td><td>If <tt>true</tt>, continually save the model version which gets the highest UAS value on the dev set. (Only valid if a development treebank is provided with <tt>-devFile</tt>.)</td></tr>
+   *   <tr><td><tt>-trainingThreads</tt></td><td>1</td><td>Number of threads to use during training. Note that depending on training batch size, it may be unwise to simply choose the maximum amount of threads for your machine. On our 16-core test machines: a batch size of 10,000 runs fastest with around 6 threads; a batch size of 100,000 runs best with around 10 threads.</td></tr>
+   *   <tr><td><tt>-wordCutOff</tt></td><td>1</td><td>The parser can optionally ignore rare words by simply choosing an arbitrary "unknown" feature representation for words that appear with frequency less than <em>n</em> in the corpus. This <em>n</em> is controlled by the <tt>wordCutOff</tt> parameter.</td></tr>
    * </table>
    *
    * Runtime parsing options:
    * <table>
    *   <tr><th>Option</th><th>Default</th><th>Description</th></tr>
-   *   <tr><td><tt>&#8209;escaper</tt></td><td>N/A</td><td>Only applicable for testing with <tt>-textFile</tt>. If provided, use this word-escaper when parsing raw sentences. (Should be a fully-qualified class name like <tt>edu.stanford.nlp.trees.international.arabic.ATBEscaper</tt>.)</td></tr>
-   *   <tr><td><tt>&#8209;numPreComputed</tt></td><td>100000</td><td>The parser pre-computes hidden-layer unit activations for particular inputs words at both training and testing time in order to speed up feedforward computation in the neural network. This parameter determines how many words for which we should compute hidden-layer activations.</td></tr>
-   *   <tr><td><tt>&#8209;sentenceDelimiter</tt></td><td>N/A</td><td>Only applicable for testing with <tt>-textFile</tt>.  If provided, assume that the given <tt>textFile</tt> has already been sentence-split, and that sentences are separated by this delimiter.</td></tr>
-   *   <tr><td><tt>&#8209;tagger.model</tt></td><td>edu/stanford/nlp/models/pos-tagger/english-left3words/english-left3words-distsim.tagger</td><td>Only applicable for testing with <tt>-textFile</tt>. Path to a part-of-speech tagger to use to pre-tag the raw sentences before parsing.</td></tr>
+   *   <tr><td><tt>-escaper</tt></td><td>N/A</td><td>Only applicable for testing with <tt>-textFile</tt>. If provided, use this word-escaper when parsing raw sentences. Should be a fully-qualified class name like <tt>edu.stanford.nlp.trees.international.arabic.ATBEscaper</tt>.</td></tr>
+   *   <tr><td><tt>-numPreComputed</tt></td><td>100000</td><td>The parser pre-computes hidden-layer unit activations for particular inputs words at both training and testing time in order to speed up feedforward computation in the neural network. This parameter determines how many words for which we should compute hidden-layer activations.</td></tr>
+   *   <tr><td><tt>-sentenceDelimiter</tt></td><td>N/A</td><td>Only applicable for testing with <tt>-textFile</tt>.  If provided, assume that the given <tt>textFile</tt> has already been sentence-split, and that sentences are separated by this delimiter.</td></tr>
+   *   <tr><td><tt>-tagger.model</tt></td><td>edu/stanford/nlp/models/pos-tagger/english-left3words/english-left3words-distsim.tagger</td><td>Only applicable for testing with <tt>-textFile</tt>. Path to a part-of-speech tagger to use to pre-tag the raw sentences before parsing.</td></tr>
    * </table>
    */
   public static void main(String[] args) {
@@ -1241,9 +1273,10 @@ public class DependencyParser  {
     DependencyParser parser = new DependencyParser(props);
 
     // Train with CoNLL-X data
-    if (props.containsKey("trainFile"))
+    if (props.containsKey("trainFile")) {
       parser.train(props.getProperty("trainFile"), props.getProperty("devFile"), props.getProperty("model"),
-          props.getProperty("embedFile"), props.getProperty("preModel"));
+              props.getProperty("embedFile"), props.getProperty("preModel"));
+    }
 
     boolean loaded = false;
     // Test with CoNLL-X data

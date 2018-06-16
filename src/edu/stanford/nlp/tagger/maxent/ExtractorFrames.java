@@ -26,11 +26,11 @@
 //http://www-nlp.stanford.edu/software/tagger.shtml
 
 
-package edu.stanford.nlp.tagger.maxent; 
-import edu.stanford.nlp.util.logging.Redwood;
+package edu.stanford.nlp.tagger.maxent;
 
 import edu.stanford.nlp.process.WordShapeClassifier;
 import edu.stanford.nlp.util.StringUtils;
+import edu.stanford.nlp.util.logging.Redwood;
 
 import java.util.*;
 
@@ -40,6 +40,7 @@ import java.util.*;
  * tag sequences (and interaction terms) for the MaxentTagger, but not the
  * feature extractors explicitly targeting generalization for rare or unknown
  * words.
+ *
  * The following options are supported:
  * <table>
  * <tr><td>Name</td><td>Args</td><td>Effect</td></tr>
@@ -120,7 +121,7 @@ public class ExtractorFrames  {
 
   // all features are implicitly conjoined with the current tag
   static final Extractor cWord = new Extractor(0, false);
-  static final Extractor prevWord = new Extractor(-1, false);
+  private static final Extractor prevWord = new Extractor(-1, false);
   private static final Extractor prevTag = new Extractor(-1, true);
   // prev tag and current word!
   private static final Extractor prevTagWord = new ExtractorWordTag(0, -1);
@@ -796,9 +797,7 @@ class ExtractorSpanishAuxiliaryTag extends Extractor {
   @Override
   String extract(History h, PairsHolder pH) {
     String tag = super.extract(h, pH);
-    boolean isAux = tag.length() >= 2 && tag.substring(0, 2).equals("va");
-
-    return isAux ? "1" : "0";
+    return tag.startsWith("va") ? "1" : "0";
   }
 
   @Override
@@ -824,9 +823,7 @@ class ExtractorSpanishSemiauxiliaryTag extends Extractor {
   @Override
   String extract(History h, PairsHolder pH) {
     String tag = super.extract(h, pH);
-    boolean isSemiAux = tag.length() >= 2 && tag.substring(0, 2).equals("vs");
-
-    return isSemiAux ? "1" : "0";
+    return tag.startsWith("vs") ? "1" : "0";
   }
 
   @Override

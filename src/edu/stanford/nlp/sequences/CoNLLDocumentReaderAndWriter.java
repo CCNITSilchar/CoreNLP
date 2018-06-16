@@ -1,5 +1,4 @@
-package edu.stanford.nlp.sequences; 
-import edu.stanford.nlp.util.logging.Redwood;
+package edu.stanford.nlp.sequences;
 
 import edu.stanford.nlp.ling.CoreLabel;
 import edu.stanford.nlp.ling.CoreAnnotations;
@@ -38,9 +37,6 @@ import java.io.*;
  * @author Christopher Manning
  */
 public class CoNLLDocumentReaderAndWriter implements DocumentReaderAndWriter<CoreLabel>  {
-
-  /** A logger for this class */
-  private static Redwood.RedwoodChannels log = Redwood.channels(CoNLLDocumentReaderAndWriter.class);
 
   private static final long serialVersionUID = 6281374154299530460L;
 
@@ -95,16 +91,16 @@ public class CoNLLDocumentReaderAndWriter implements DocumentReaderAndWriter<Cor
       Collection<String> docs = new ArrayList<>();
       ObjectBank<String> ob = ObjectBank.getLineIterator(r);
       StringBuilder current = new StringBuilder();
+      Matcher matcher = docPattern.matcher("");
       for (String line : ob) {
-        if (docPattern.matcher(line).lookingAt()) {
+        if (matcher.reset(line).lookingAt()) {
           // Start new doc, store old one if non-empty
           if (current.length() > 0) {
             docs.add(current.toString());
-            current = new StringBuilder();
+            current.setLength(0);
           }
         }
-        current.append(line);
-        current.append('\n');
+        current.append(line).append('\n');
       }
       if (current.length() > 0) {
         docs.add(current.toString());
@@ -164,7 +160,7 @@ public class CoNLLDocumentReaderAndWriter implements DocumentReaderAndWriter<Cor
         wi.setWord(bits[1]);
       } else {
         wi.setWord(bits[0]);
-        }
+      }
       wi.set(CoreAnnotations.LemmaAnnotation.class, bits[1]);
       wi.setTag(bits[2]);
       wi.set(CoreAnnotations.ChunkAnnotation.class, bits[3]);

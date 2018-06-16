@@ -1,4 +1,4 @@
-package edu.stanford.nlp.pipeline; 
+package edu.stanford.nlp.pipeline;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -8,8 +8,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
-import edu.stanford.nlp.hcoref.data.CorefChain;
-import edu.stanford.nlp.hcoref.CorefCoreAnnotations;
+import edu.stanford.nlp.coref.CorefCoreAnnotations;
+
+import edu.stanford.nlp.coref.data.CorefChain;
 import edu.stanford.nlp.ie.machinereading.structure.EntityMention;
 import edu.stanford.nlp.ie.machinereading.structure.ExtractionObject;
 import edu.stanford.nlp.ie.machinereading.structure.MachineReadingAnnotations;
@@ -167,6 +168,16 @@ public class XMLOutputter extends AnnotationOutputter  {
           if (depInfo != null) {
             sentElem.appendChild(depInfo);
           }
+
+          depInfo = buildDependencyTreeInfo("enhanced-dependencies", sentence.get(SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class), tokens, NAMESPACE_URI);
+          if (depInfo != null) {
+            sentElem.appendChild(depInfo);
+          }
+
+          depInfo = buildDependencyTreeInfo("enhanced-plus-plus-dependencies", sentence.get(SemanticGraphCoreAnnotations.EnhancedPlusPlusDependenciesAnnotation.class), tokens, NAMESPACE_URI);
+          if (depInfo != null) {
+            sentElem.appendChild(depInfo);
+          }
         }
 
         // add Open IE triples
@@ -203,9 +214,7 @@ public class XMLOutputter extends AnnotationOutputter  {
           sentElem.appendChild(mrElem);
         }
 
-        /**
-         * Adds sentiment as an attribute of this sentence.
-         */
+        // Adds sentiment as an attribute of this sentence.
         Tree sentimentTree = sentence.get(SentimentCoreAnnotations.SentimentAnnotatedTree.class);
         if (sentimentTree != null) {
           int sentiment = RNNCoreAnnotations.getPredictedClass(sentimentTree);
@@ -227,8 +236,8 @@ public class XMLOutputter extends AnnotationOutputter  {
     if (corefChains != null) {
       List<CoreMap> sentences = annotation.get(CoreAnnotations.SentencesAnnotation.class);
       Element corefInfo = new Element("coreference", NAMESPACE_URI);
-      if (addCorefGraphInfo(options, corefInfo, sentences, corefChains, NAMESPACE_URI))
-        docElem.appendChild(corefInfo);
+      addCorefGraphInfo(options, corefInfo, sentences, corefChains, NAMESPACE_URI);
+      docElem.appendChild(corefInfo);
     }
 
     //

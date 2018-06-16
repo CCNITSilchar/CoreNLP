@@ -1,6 +1,6 @@
 package edu.stanford.nlp.pipeline;
 
-import edu.stanford.nlp.hcoref.CorefCoreAnnotations;
+import edu.stanford.nlp.coref.CorefCoreAnnotations;
 import edu.stanford.nlp.ie.NumberNormalizer;
 import edu.stanford.nlp.ie.machinereading.structure.MachineReadingAnnotations;
 import edu.stanford.nlp.ling.CoreAnnotation;
@@ -10,7 +10,10 @@ import edu.stanford.nlp.semgraph.SemanticGraphCoreAnnotations;
 import edu.stanford.nlp.trees.TreeCoreAnnotations;
 import edu.stanford.nlp.util.CoreMap;
 import edu.stanford.nlp.util.Pair;
+import edu.stanford.nlp.util.logging.Redwood;
 import edu.stanford.nlp.util.StringUtils;
+
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.*;
@@ -48,6 +51,11 @@ public class ProtobufAnnotationSerializerSlowITest {
   public static final String prideAndPrejudiceFirstSentence =
       "It is a truth universally acknowledged, that a single man in possession  of a good fortune, must be in want of a wife.";
 
+  @BeforeClass
+  public static void setUp() {
+    // suppress StanfordCoreNLP info messages for this test
+    System.err.close();
+  }
 
   protected Annotation mkAnnotation() {
     AnnotationPipeline pipeline = new StanfordCoreNLP(new Properties());
@@ -63,19 +71,9 @@ public class ProtobufAnnotationSerializerSlowITest {
     return ann;
   }
 
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "ConstantConditions"})
   public static void sameAsRead(Annotation doc, Annotation readDoc) {
     // Run the original document through the number normalizer
-    if (doc.containsKey(CoreAnnotations.SentencesAnnotation.class)) {
-      for (CoreMap sentence : doc.get(CoreAnnotations.SentencesAnnotation.class)) {
-        if (sentence.containsKey(CoreAnnotations.TokensAnnotation.class)) {
-          boolean hasTokenBeginAnnotation = sentence.size() > 0 && sentence.get(CoreAnnotations.TokensAnnotation.class).get(0).containsKey(CoreAnnotations.TokenBeginAnnotation.class);
-          if (hasTokenBeginAnnotation) {
-            sentence.set(CoreAnnotations.NumerizedTokensAnnotation.class, NumberNormalizer.findAndMergeNumbers(sentence));
-          }
-        }
-      }
-    }
 
     // Update some fields in original document
     if (doc.containsKey(CoreAnnotations.QuotationsAnnotation.class)) {
@@ -83,9 +81,8 @@ public class ProtobufAnnotationSerializerSlowITest {
         doc.remove(CoreAnnotations.QuotationsAnnotation.class);
       } else {
         for (CoreMap quote : doc.get(CoreAnnotations.QuotationsAnnotation.class)) {
-          quote.remove(CoreAnnotations.TokensAnnotation.class);
           quote.remove(CoreAnnotations.QuotationsAnnotation.class);
-          quote.remove(CoreAnnotations.QuotationsAnnotation.class);
+          quote.remove(SemanticGraphCoreAnnotations.EnhancedPlusPlusDependenciesAnnotation.class);
         }
       }
     }
@@ -95,6 +92,8 @@ public class ProtobufAnnotationSerializerSlowITest {
         CoreMap sentence = doc.get(CoreAnnotations.SentencesAnnotation.class).get(i);
         for (int k = 0; k < sentence.get(CoreAnnotations.TokensAnnotation.class).size(); ++k) {
           CoreLabel token = sentence.get(CoreAnnotations.TokensAnnotation.class).get(k);
+          token.remove(TreeCoreAnnotations.HeadWordLabelAnnotation.class);
+          token.remove(TreeCoreAnnotations.HeadTagLabelAnnotation.class);
           // Set docID
           if (doc.containsKey(CoreAnnotations.DocIDAnnotation.class)) { token.setDocID(doc.get(CoreAnnotations.DocIDAnnotation.class)); }
           // Set sentence index if not already there
@@ -125,8 +124,8 @@ public class ProtobufAnnotationSerializerSlowITest {
       for (int i = 0; i < doc.get(CoreAnnotations.TokensAnnotation.class).size(); i++) {
         CoreLabel token = doc.get(CoreAnnotations.TokensAnnotation.class).get(i);
         // Remove null gender
-        if (token.get(MachineReadingAnnotations.GenderAnnotation.class) == null) {
-          token.remove(MachineReadingAnnotations.GenderAnnotation.class);
+        if (token.get(CoreAnnotations.GenderAnnotation.class) == null) {
+          token.remove(CoreAnnotations.GenderAnnotation.class);
         }
       }
     }
@@ -195,7 +194,6 @@ public class ProtobufAnnotationSerializerSlowITest {
             }
           }
         }
-      } else {
         assertTrue("Annotations don't match (don't know why?)", false);
       }
     }
@@ -222,12 +220,23 @@ public class ProtobufAnnotationSerializerSlowITest {
     return annotators.toArray(new String[annotators.size()]);
   }
 
-  private void testAnnotators(String annotators) {
+
+  private void testAnnotators(String annotators, Pair<String,String> additionalProperty) {
     try {
+      // check if this list of annotators is valid
+      // if annotators need to be added by ensurePrerequisiteAnnotators, just return
+      String[] annotatorsAsArray = annotators.split(",");
+      Properties emptyProps = new Properties();
+      String completeAnnotatorsList =
+          StanfordCoreNLP.ensurePrerequisiteAnnotators(annotatorsAsArray, emptyProps);
+      if (completeAnnotatorsList.split(",").length != annotatorsAsArray.length) {
+        return;
+      }
       AnnotationSerializer serializer = new ProtobufAnnotationSerializer();
       // Write
       Annotation doc = new StanfordCoreNLP(new Properties(){{
         setProperty("annotators", annotators);
+        setProperty(additionalProperty.first, additionalProperty.second);
       }}).process(THOROUGH_TEST ? prideAndPrejudiceChapters1 : prideAndPrejudiceFirstBit);
       ByteArrayOutputStream ks = new ByteArrayOutputStream();
       serializer.write(doc, ks).close();
@@ -243,6 +252,10 @@ public class ProtobufAnnotationSerializerSlowITest {
     } catch (Exception e) { throw new RuntimeException(e); }
   }
 
+  private void testAnnotators(String annotators) {
+    testAnnotators(annotators, Pair.makePair("__none__", "__none__"));
+  }
+
   /*
   TODO(gabor) serialize the entity mentions
   @Test
@@ -250,7 +263,6 @@ public class ProtobufAnnotationSerializerSlowITest {
     testAnnotators("tokenize,ssplit,pos,lemma,ner,entitymentions");
   }
   */
-
 
   @Test
   public void testSentiment() {
@@ -268,6 +280,7 @@ public class ProtobufAnnotationSerializerSlowITest {
     testAnnotators("tokenize,quote");
     testAnnotators("tokenize,ssplit,quote");
     testAnnotators("tokenize,ssplit,quote");
+    testAnnotators("tokenize,ssplit,pos,lemma,ner,depparse,coref,quote");
   }
 
   @Test
@@ -306,8 +319,8 @@ public class ProtobufAnnotationSerializerSlowITest {
     assertNotNull(compressedProto);
 
     // Check size
-    assertTrue("" + compressedProto.length, compressedProto.length < 380000);
-    assertTrue("" + uncompressedProto.length, uncompressedProto.length < 1800000);
+    assertTrue("" + compressedProto.length, compressedProto.length < 403000);
+    assertTrue("" + uncompressedProto.length, uncompressedProto.length < 2610000);
   }
 
   @Test
@@ -356,6 +369,15 @@ public class ProtobufAnnotationSerializerSlowITest {
     }
   }
 
+  public void diffCoreMaps(int i, CoreMap cm1, CoreMap cm2) {
+    if (!cm1.equals(cm2)) {
+      System.out.println("---");
+      System.out.println("entity mention: "+i);
+      System.out.println(cm1.toShorterString());
+      System.out.println(cm2.toShorterString());
+    }
+  }
+
   @Test
   public void testCanWriteReadWriteReadLargeFile() {
     try {
@@ -373,6 +395,12 @@ public class ProtobufAnnotationSerializerSlowITest {
       pair1.second.close();
       Annotation readDoc = pair1.first;
       kis.close();
+
+      for (int i = 0 ; i < doc.get(CoreAnnotations.MentionsAnnotation.class).size() ; i++) {
+        CoreMap cm1 = doc.get(CoreAnnotations.MentionsAnnotation.class).get(i);
+        CoreMap cm2 = readDoc.get(CoreAnnotations.MentionsAnnotation.class).get(i);
+        diffCoreMaps(i,cm1,cm2);
+      }
 
       sameAsRead(doc, readDoc);
 
@@ -425,7 +453,34 @@ public class ProtobufAnnotationSerializerSlowITest {
 
   @Test
   public void testGender() {
-    testAnnotators("tokenize,ssplit,pos,lemma,ner,gender");
+    testAnnotators("tokenize,ssplit,pos,lemma,ner,entitymentions,gender");
+  }
+
+
+  @Test
+  public void testDocDate() {
+    Annotation ann = new Annotation("hello world");
+    ann.set(CoreAnnotations.DocDateAnnotation.class, "2016-05-05");
+    ProtobufAnnotationSerializer serializer = new ProtobufAnnotationSerializer();
+    Annotation reread = serializer.fromProto(serializer.toProto(ann));
+    sameAsRead(ann, reread);
+  }
+
+
+  @Test
+  public void testCalendar() {
+    Annotation ann = new Annotation("hello world");
+    ann.set(CoreAnnotations.CalendarAnnotation.class, new GregorianCalendar());
+    ProtobufAnnotationSerializer serializer = new ProtobufAnnotationSerializer();
+    Annotation reread = serializer.fromProto(serializer.toProto(ann));
+    sameAsRead(ann, reread);
+  }
+
+
+  @Test
+  public void testShiftReduce() {
+    testAnnotators("tokenize,ssplit,pos,parse",
+        Pair.makePair("parse.model", "edu/stanford/nlp/models/srparser/englishSR.ser.gz"));
   }
 
   /**

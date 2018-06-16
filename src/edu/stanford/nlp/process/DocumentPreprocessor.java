@@ -1,5 +1,4 @@
-package edu.stanford.nlp.process; 
-import edu.stanford.nlp.util.logging.Redwood;
+package edu.stanford.nlp.process;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -16,6 +15,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Properties;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 
 import edu.stanford.nlp.io.IOUtils;
@@ -26,12 +26,10 @@ import edu.stanford.nlp.ling.HasTag;
 import edu.stanford.nlp.ling.HasWord;
 import edu.stanford.nlp.ling.Label;
 import edu.stanford.nlp.objectbank.XMLBeginEndIterator;
-
-import java.util.function.Function;
-
 import edu.stanford.nlp.util.Generics;
 import edu.stanford.nlp.util.PropertiesUtils;
 import edu.stanford.nlp.util.StringUtils;
+import edu.stanford.nlp.util.logging.Redwood;
 
 /**
  * Produces a list of sentences from either a plain text or XML document.
@@ -40,7 +38,7 @@ import edu.stanford.nlp.util.StringUtils;
  * multiple times, then you need to create a second DocumentProcessor.
  * <p>
  * Tokenization: The default tokenizer is {@link PTBTokenizer}. If null is passed
- * to <code>setTokenizerFactory</code>, then whitespace tokenization is assumed.
+ * to {@code setTokenizerFactory}, then whitespace tokenization is assumed.
  * <p>
  * Adding a new document type requires two steps:
  * <ol>
@@ -56,13 +54,15 @@ import edu.stanford.nlp.util.StringUtils;
  */
 public class DocumentPreprocessor implements Iterable<List<HasWord>>  {
 
+  // todo [cdm 2017]: This class is used in all our parsers, but we should probably work to move over to WordToSetenceProcessor, which has been used in CoreNLP and has been developed more.
+
   /** A logger for this class */
-  private static Redwood.RedwoodChannels log = Redwood.channels(DocumentPreprocessor.class);
+  private static final Redwood.RedwoodChannels log = Redwood.channels(DocumentPreprocessor.class);
 
   public enum DocType {Plain, XML}
 
   // todo: Should probably change this to be regex, but I've added some multi-character punctuation in the meantime
-  public static final String[] DEFAULT_SENTENCE_DELIMS = {".", "?", "!", "!!", "!!!", "??", "?!", "!?"};
+  private static final String[] DEFAULT_SENTENCE_DELIMS = {".", "?", "!", "!!", "!!!", "??", "?!", "!?"};
 
   // inputReader is used in a fairly yucky way at the moment to communicate
   // from a XMLIterator across to a PlainTextIterator.  Maybe redo by making
@@ -255,7 +255,7 @@ public class DocumentPreprocessor implements Iterable<List<HasWord>>  {
         delimFollowers = Generics.newHashSet();
         eolIsSignificant = wsPattern.matcher(sentenceDelimiter).matches();
         if(eolIsSignificant) { // For Stanford English Tokenizer
-          sentDelims.add(PTBLexer.NEWLINE_TOKEN);
+          sentDelims.add(PTBTokenizer.getNewlineToken());
         }
       }
 
@@ -263,7 +263,7 @@ public class DocumentPreprocessor implements Iterable<List<HasWord>>  {
       if (tokenizerFactory == null) {
         eolIsSignificant = sentDelims.contains(WhitespaceLexer.NEWLINE);
         tokenizer = WhitespaceTokenizer.
-          newWordWhitespaceTokenizer(inputReader, eolIsSignificant);
+            newCoreLabelWhitespaceTokenizer(inputReader, eolIsSignificant);
       } else {
         if (eolIsSignificant) {
           tokenizer = tokenizerFactory.getTokenizer(inputReader, "tokenizeNLs");
@@ -338,7 +338,7 @@ public class DocumentPreprocessor implements Iterable<List<HasWord>>  {
         }
 
         if ( ! (wsPattern.matcher(token.word()).matches() ||
-                token.word().equals(PTBLexer.NEWLINE_TOKEN))) {
+                token.word().equals(PTBTokenizer.getNewlineToken()))) {
           nextSent.add(token);
         }
 
@@ -469,6 +469,7 @@ public class DocumentPreprocessor implements Iterable<List<HasWord>>  {
     sb.append("-tokenizerOptions opts  : Specify custom tokenizer options.").append(nl);
     sb.append("-tag delim              : Input tokens are tagged. Split tags.").append(nl);
     sb.append("-whitespaceTokenization : Whitespace tokenization only.").append(nl);
+    sb.append("-sentenceDelimiter delim: Split sentences on this also (\"newline\" for \\n)").append(nl);
     return sb.toString();
   }
 
@@ -483,6 +484,7 @@ public class DocumentPreprocessor implements Iterable<List<HasWord>>  {
     argOptionDefs.put("tag", 1);
     argOptionDefs.put("tokenizerOptions", 1);
     argOptionDefs.put("whitespaceTokenization", 0);
+    argOptionDefs.put("sentenceDelimiter", 1);
     return argOptionDefs;
   }
 
@@ -506,6 +508,14 @@ public class DocumentPreprocessor implements Iterable<List<HasWord>>  {
     String xmlElementDelimiter = options.getProperty("xml", null);
     DocType docType = xmlElementDelimiter == null ? DocType.Plain : DocType.XML;
     String sentenceDelimiter = options.containsKey("noTokenization") ? System.getProperty("line.separator") : null;
+    String sDelim = options.getProperty("sentenceDelimiter");
+    if (sDelim != null) {
+      if (sDelim.equalsIgnoreCase("newline")) {
+        sentenceDelimiter = "\n";
+      } else {
+        sentenceDelimiter = sDelim;
+      }
+    }
     String tagDelimiter = options.getProperty("tag", null);
     String[] sentenceDelims = null;
 

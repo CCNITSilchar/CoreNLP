@@ -13,19 +13,17 @@
 // GNU General Public License for more details.
 //
 // You should have received a copy of the GNU General Public License
-// along with this program; if not, write to the Free Software
-// Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+// along with this program.  If not, see http://www.gnu.org/licenses/ .
 //
 // For more information, bug reports, fixes, contact:
 //    Christopher Manning
-//    Dept of Computer Science, Gates 1A
-//    Stanford CA 94305-9010
+//    Dept of Computer Science, Gates 2A
+//    Stanford CA 94305-9020
 //    USA
 //    parser-support@lists.stanford.edu
-//    http://nlp.stanford.edu/downloads/lex-parser.shtml
+//    https://nlp.stanford.edu/software/lex-parser.html
 
-package edu.stanford.nlp.parser.lexparser; 
-import edu.stanford.nlp.util.logging.Redwood;
+package edu.stanford.nlp.parser.lexparser;
 
 import java.util.*;
 
@@ -45,6 +43,7 @@ import edu.stanford.nlp.ling.Label;
 import edu.stanford.nlp.ling.Word;
 import edu.stanford.nlp.parser.KBestViterbiParser;
 import edu.stanford.nlp.util.RuntimeInterruptedException;
+import edu.stanford.nlp.util.logging.Redwood;
 
 
 /**
@@ -149,22 +148,27 @@ public class ExhaustiveDependencyParser implements Scorer, KBestViterbiParser  {
     return iScoreHSum[head][dg.tagBin(tag)][start] + iScoreHSum[head][dg.tagBin(tag)][end];
   }
 
+  @Override
   public double oScore(Edge edge) {
     return oScore(edge.start, edge.end, edge.head, edge.tag);
   }
 
+  @Override
   public double iScore(Edge edge) {
     return iScore(edge.start, edge.end, edge.head, edge.tag);
   }
 
+  @Override
   public boolean oPossible(Hook hook) {
     return (hook.isPreHook() ? oPossibleByR[hook.end][hook.head][dg.tagBin(hook.tag)] : oPossibleByL[hook.start][hook.head][dg.tagBin(hook.tag)]);
   }
 
+  @Override
   public boolean iPossible(Hook hook) {
     return (hook.isPreHook() ? iPossibleByR[hook.start][hook.head][dg.tagBin(hook.tag)] : iPossibleByL[hook.end][hook.head][dg.tagBin(hook.tag)]);
   }
 
+  @Override
   public boolean parse(List<? extends HasWord> sentence) {
     if (op.testOptions.verbose) {
       Timing.tick("Starting dependency parse.");
@@ -593,10 +597,12 @@ public class ExhaustiveDependencyParser implements Scorer, KBestViterbiParser  {
     return hasParse();
   }
 
+  @Override
   public boolean hasParse() {
     return getBestScore() > Float.NEGATIVE_INFINITY;
   }
 
+  @Override
   public double getBestScore() {
     int length = sentence.size();
     if (length > arraySize) {
@@ -748,17 +754,18 @@ public class ExhaustiveDependencyParser implements Scorer, KBestViterbiParser  {
 
 
   /** Return the best dependency parse for a sentence.  You must call
-   *  <code>parse()</code> before a call to this method.
+   *  {@code parse()} before a call to this method.
    *  <p>
    *  <i>Implementation note:</i> the best parse is recalculated from the chart
    *  each time this method is called.  It isn't cached.
    *
-   *  @return The best dependency parse for a sentence or <code>null</code>.
+   *  @return The best dependency parse for a sentence or {@code null}.
    *    The returned tree will begin with a binary branching node, the
    *    left branch of which is the dependency tree proper, and the right
    *    side of which contains a boundary word .$. which heads the
    *    sentence.
    */
+  @Override
   public Tree getBestParse() {
     if ( ! hasParse()) {
       return null;
@@ -806,6 +813,7 @@ public class ExhaustiveDependencyParser implements Scorer, KBestViterbiParser  {
    *         each accompanied by its score (typically a
    *         negative log probability).
    */
+  @Override
   public List<ScoredObject<Tree>> getKBestParses(int k) {
     throw new UnsupportedOperationException("Doesn't do k best yet");
   }
@@ -816,6 +824,7 @@ public class ExhaustiveDependencyParser implements Scorer, KBestViterbiParser  {
    *  @return All the equal best parses for a sentence, with each
    *         accompanied by its score
    */
+  @Override
   public List<ScoredObject<Tree>> getBestParses() {
     throw new UnsupportedOperationException("Doesn't do best parses yet");
   }
@@ -830,6 +839,7 @@ public class ExhaustiveDependencyParser implements Scorer, KBestViterbiParser  {
    *  @return A list of k good parses for the sentence, with
    *         each accompanied by its score
    */
+  @Override
   public List<ScoredObject<Tree>> getKGoodParses(int k) {
     throw new UnsupportedOperationException("Doesn't do k good yet");
   }
@@ -841,6 +851,7 @@ public class ExhaustiveDependencyParser implements Scorer, KBestViterbiParser  {
    *  @return A list of k parse samples for the sentence, with
    *         each accompanied by its score
    */
+  @Override
   public List<ScoredObject<Tree>> getKSampledParses(int k) {
     throw new UnsupportedOperationException("Doesn't do k sampled yet");
   }

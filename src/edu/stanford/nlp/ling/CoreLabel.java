@@ -1,5 +1,4 @@
-package edu.stanford.nlp.ling; 
-import edu.stanford.nlp.util.logging.Redwood;
+package edu.stanford.nlp.ling;
 
 import java.util.Arrays;
 import java.util.Comparator;
@@ -7,7 +6,6 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.function.Consumer;
 
-import edu.stanford.nlp.ling.AnnotationLookup.KeyLookup;
 import edu.stanford.nlp.util.ArrayCoreMap;
 import edu.stanford.nlp.util.CoreMap;
 import edu.stanford.nlp.util.Generics;
@@ -31,10 +29,7 @@ import edu.stanford.nlp.util.Generics;
  * @author dramage
  * @author rafferty
  */
-public class CoreLabel extends ArrayCoreMap implements AbstractCoreLabel, HasCategory, HasContext  {
-
-  /** A logger for this class */
-  private static Redwood.RedwoodChannels log = Redwood.channels(CoreLabel.class);
+public class CoreLabel extends ArrayCoreMap implements AbstractCoreLabel, HasCategory /* , HasContext */  {
 
   private static final long serialVersionUID = 2L;
 
@@ -82,12 +77,12 @@ public class CoreLabel extends ArrayCoreMap implements AbstractCoreLabel, HasCat
   @SuppressWarnings({"unchecked"})
   public CoreLabel(CoreMap label) {
     super(label.size());
-    Consumer<Class<? extends Key<?>>> listener = ArrayCoreMap.listener;  // don't listen to the clone operation
+    Consumer<Class<? extends Key<?>>> savedListener = ArrayCoreMap.listener;  // don't listen to the clone operation
     ArrayCoreMap.listener = null;
     for (Class key : label.keySet()) {
       set(key, label.get(key));
     }
-    ArrayCoreMap.listener = listener;
+    ArrayCoreMap.listener = savedListener;
   }
 
   /**
@@ -141,6 +136,34 @@ public class CoreLabel extends ArrayCoreMap implements AbstractCoreLabel, HasCat
     initFromStrings(keys, values);
   }
 
+  /**
+   * This constructor attempts uses preparsed Class keys.
+   * It's mainly useful for reading from a file.
+   *
+   * @param keys Array of key classes
+   * @param values Array of values (as String)
+   */
+  @SuppressWarnings("rawtypes")
+  public CoreLabel(Class[] keys, String[] values) {
+    super(keys.length);
+    //this.map = new ArrayCoreMap();
+    initFromStrings(keys, values);
+  }
+
+  /** This is provided as a simple way to make a CoreLabel for a word from a String.
+   *  It's often useful in fixup or test code. It sets all three of the Text, OriginalText,
+   *  and Value annotations to the given value.
+   *
+   *  @param word The word string to make a CoreLabel for
+   *  @return A CoreLabel for this word string
+   */
+  public static CoreLabel wordFromString(String word) {
+    CoreLabel cl = new CoreLabel();
+    cl.setWord(word);
+    cl.setOriginalText(word);
+    cl.setValue(word);
+    return cl;
+  }
 
   /**
    * Class that all "generic" annotations extend.
@@ -154,7 +177,7 @@ public class CoreLabel extends ArrayCoreMap implements AbstractCoreLabel, HasCat
   public static final Map<Class<? extends GenericAnnotation>, String> genericValues = Generics.newHashMap();
 
 
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "rawtypes"})
   private void initFromStrings(String[] keys, String[] values) {
     if (keys.length != values.length) {
       throw new UnsupportedOperationException("Argument array lengths differ: " +
@@ -163,10 +186,10 @@ public class CoreLabel extends ArrayCoreMap implements AbstractCoreLabel, HasCat
     for (int i = 0; i < keys.length; i++) {
       String key = keys[i];
       String value = values[i];
-      KeyLookup lookup = AnnotationLookup.getCoreKey(key);
+      Class coreKeyClass = AnnotationLookup.toCoreKey(key);
 
       //now work with the key we got above
-      if (lookup == null) {
+      if (coreKeyClass == null) {
         if (key != null) {
           throw new UnsupportedOperationException("Unknown key " + key);
         }
@@ -195,15 +218,15 @@ public class CoreLabel extends ArrayCoreMap implements AbstractCoreLabel, HasCat
         //}
       } else {
         try {
-          Class<?> valueClass = AnnotationLookup.getValueType(lookup.coreKey);
+          Class<?> valueClass = AnnotationLookup.getValueType(coreKeyClass);
           if(valueClass.equals(String.class)) {
-            this.set(lookup.coreKey, values[i]);
+            this.set(coreKeyClass, values[i]);
           } else if(valueClass == Integer.class) {
-            this.set(lookup.coreKey, Integer.parseInt(values[i]));
+            this.set(coreKeyClass, Integer.parseInt(values[i]));
           } else if(valueClass == Double.class) {
-            this.set(lookup.coreKey, Double.parseDouble(values[i]));
+            this.set(coreKeyClass, Double.parseDouble(values[i]));
           } else if(valueClass == Long.class) {
-            this.set(lookup.coreKey, Long.parseLong(values[i]));
+            this.set(coreKeyClass, Long.parseLong(values[i]));
           } else {
             throw new RuntimeException("Can't handle " + valueClass);
           }
@@ -212,12 +235,58 @@ public class CoreLabel extends ArrayCoreMap implements AbstractCoreLabel, HasCat
           throw new UnsupportedOperationException("CORE: CoreLabel.initFromStrings: "
               + "Bad type for " + key
               + ". Value was: " + value
-              + "; expected "+AnnotationLookup.getValueType(lookup.coreKey), e);
+              + "; expected "+AnnotationLookup.getValueType(coreKeyClass), e);
         }
       }
     }
   }
 
+  @SuppressWarnings("rawtypes")
+  public static Class[] parseStringKeys(String[] keys) {
+    Class[] classes = new Class[keys.length];
+    for (int i = 0; i < keys.length; i++) {
+      String key = keys[i];
+      classes[i] = AnnotationLookup.toCoreKey(key);
+
+      // now work with the key we got above
+      if (classes[i] == null) {
+        throw new UnsupportedOperationException("Unknown key " + key);
+      }
+    }
+    return classes;
+  }
+
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private void initFromStrings(Class[] keys, String[] values) {
+    if (keys.length != values.length) {
+      throw new UnsupportedOperationException("Argument array lengths differ: " +
+              Arrays.toString(keys) + " vs. " + Arrays.toString(values));
+    }
+    for (int i = 0; i < keys.length; i++) {
+      Class coreKeyClass = keys[i];
+      String value = values[i];
+      try {
+        Class<?> valueClass = AnnotationLookup.getValueType(coreKeyClass);
+        if (valueClass.equals(String.class)) {
+          this.set(coreKeyClass, values[i]);
+        } else if (valueClass == Integer.class) {
+          this.set(coreKeyClass, Integer.parseInt(values[i]));
+        } else if (valueClass == Double.class) {
+          this.set(coreKeyClass, Double.parseDouble(values[i]));
+        } else if (valueClass == Long.class) {
+          this.set(coreKeyClass, Long.parseLong(values[i]));
+        } else {
+          throw new RuntimeException("Can't handle " + valueClass);
+        }
+      } catch (Exception e) {
+        // unexpected value type
+        throw new UnsupportedOperationException("CORE: CoreLabel.initFromStrings: "
+            + "Bad type for " + coreKeyClass.getSimpleName()
+            + ". Value was: " + value
+            + "; expected "+AnnotationLookup.getValueType(coreKeyClass), e);
+      }
+    }
+  }
 
   private static class CoreLabelFactory implements LabelFactory {
 
@@ -481,6 +550,14 @@ public class CoreLabel extends ArrayCoreMap implements AbstractCoreLabel, HasCat
     set(CoreAnnotations.LemmaAnnotation.class, lemma);
   }
 
+  /**
+   * Get value of IsNewlineAnnotation
+   *
+   * @return value of IsNewlineAnnotation
+   */
+  public Boolean isNewline() {
+    return get(CoreAnnotations.IsNewlineAnnotation.class);
+  }
 
   /**
    * {@inheritDoc}
@@ -574,15 +651,15 @@ public class CoreLabel extends ArrayCoreMap implements AbstractCoreLabel, HasCat
 
   /**
    * Returns a formatted string representing this label.  The
-   * desired format is passed in as a <code>String</code>.
+   * desired format is passed in as a {@code String}.
    * Currently supported formats include:
    * <ul>
    * <li>"value": just prints the value</li>
    * <li>"{map}": prints the complete map</li>
    * <li>"value{map}": prints the value followed by the contained
-   * map (less the map entry containing key <code>CATEGORY_KEY</code>)</li>
+   * map (less the map entry containing key {@code CATEGORY_KEY})</li>
    * <li>"value-index": extracts a value and an integer index from
-   * the contained map using keys  <code>INDEX_KEY</code>,
+   * the contained map using keys  {@code INDEX_KEY},
    * respectively, and prints them with a hyphen in between</li>
    * <li>"value-tag"
    * <li>"value-tag-index"
@@ -590,7 +667,7 @@ public class CoreLabel extends ArrayCoreMap implements AbstractCoreLabel, HasCat
    * displayed first and then not shown in the map that is displayed</li>
    * <li>"word": Just the value of HEAD_WORD_KEY in the map</li>
    * </ul>
-   * <p/>
+   * <p>
    * Map is printed in alphabetical order of keys.
    */
   @SuppressWarnings("unchecked")
@@ -701,7 +778,7 @@ public class CoreLabel extends ArrayCoreMap implements AbstractCoreLabel, HasCat
       break;
     case ALL:{
       for(Class en: this.keySet()){
-        buf.append(";").append(en).append(":").append(this.get(en));
+        buf.append(';').append(en).append(':').append(this.get(en));
       }
       break;
     }
@@ -712,6 +789,6 @@ public class CoreLabel extends ArrayCoreMap implements AbstractCoreLabel, HasCat
   }
 
   private static final Comparator<Class<?>> asClassComparator =
-          (o1, o2) -> o1.getName().compareTo(o2.getName());
+          Comparator.comparing(Class::getName);
 
 }

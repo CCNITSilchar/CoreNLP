@@ -14,14 +14,14 @@ import edu.stanford.nlp.ling.CoreLabel;
  * begin and position after offsets in BeginPositionAnnotation and
  * EndPositionAnnotation.  If the tokens are built in PTBTokenizer with
  * an "invertible" tokenizer, you will also get a BeforeAnnotation and for
- * the last token an AfterAnnotation.You can also get an empty CoreLabel token
+ * the last token an AfterAnnotation. You can also get an empty CoreLabel token.
  *
  * @author Anna Rafferty
  * @author Sonal Gupta (now implements CoreTokenFactory, you can make tokens using many options)
  */
 public class CoreLabelTokenFactory implements CoreTokenFactory<CoreLabel>, LexedTokenFactory<CoreLabel>, Serializable {
 
-  final boolean addIndices;
+  private final boolean addIndices;
 
   /**
    * Constructor for a new token factory which will add in the word, the
@@ -46,12 +46,13 @@ public class CoreLabelTokenFactory implements CoreTokenFactory<CoreLabel>, Lexed
    * Constructs a CoreLabel as a String with a corresponding BEGIN and END position.
    * (Does not take substring).
    */
+  @Override
   public CoreLabel makeToken(String tokenText, int begin, int length) {
     return makeToken(tokenText, tokenText, begin, length);
   }
 
   /**
-   * Constructs a CoreLabel as a String with a corresponding BEGIN and END position, 
+   * Constructs a CoreLabel as a String with a corresponding BEGIN and END position,
    * when the original OriginalTextAnnotation is different from TextAnnotation
    * (Does not take substring).
    */
@@ -67,16 +68,19 @@ public class CoreLabelTokenFactory implements CoreTokenFactory<CoreLabel>, Lexed
     return cl;
   }
 
+  @Override
   public CoreLabel makeToken() {
     CoreLabel l = new CoreLabel();
     return l;
   }
 
+  @Override
   public CoreLabel makeToken(String[] keys, String[] values) {
     CoreLabel l = new CoreLabel(keys, values);
     return l;
   }
 
+  @Override
   public CoreLabel makeToken(CoreLabel labelToBeCopied) {
     CoreLabel l = new CoreLabel(labelToBeCopied);
     return l;

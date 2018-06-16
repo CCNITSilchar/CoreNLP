@@ -1,11 +1,17 @@
-package edu.stanford.nlp.pipeline; 
-import edu.stanford.nlp.util.logging.Redwood;
+package edu.stanford.nlp.pipeline;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
 
 import edu.stanford.nlp.dcoref.Constants;
 import edu.stanford.nlp.dcoref.CorefChain;
 import edu.stanford.nlp.dcoref.CorefChain.CorefMention;
+import edu.stanford.nlp.dcoref.CorefCoreAnnotations;
 import edu.stanford.nlp.dcoref.Document;
 import edu.stanford.nlp.dcoref.Mention;
 import edu.stanford.nlp.dcoref.MentionExtractor;
@@ -14,15 +20,20 @@ import edu.stanford.nlp.dcoref.SieveCoreferenceSystem;
 import edu.stanford.nlp.ling.CoreAnnotation;
 import edu.stanford.nlp.ling.CoreAnnotations;
 import edu.stanford.nlp.ling.CoreLabel;
-import edu.stanford.nlp.dcoref.CorefCoreAnnotations;
 import edu.stanford.nlp.semgraph.SemanticGraph;
 import edu.stanford.nlp.semgraph.SemanticGraphCoreAnnotations;
 import edu.stanford.nlp.semgraph.SemanticGraphFactory;
 import edu.stanford.nlp.semgraph.SemanticGraphFactory.Mode;
+import edu.stanford.nlp.trees.GrammaticalStructure.Extras;
 import edu.stanford.nlp.trees.Tree;
 import edu.stanford.nlp.trees.TreeCoreAnnotations;
-import edu.stanford.nlp.trees.GrammaticalStructure.Extras;
-import edu.stanford.nlp.util.*;
+import edu.stanford.nlp.util.ArraySet;
+import edu.stanford.nlp.util.CoreMap;
+import edu.stanford.nlp.util.Generics;
+import edu.stanford.nlp.util.IntTuple;
+import edu.stanford.nlp.util.Pair;
+import edu.stanford.nlp.util.PropertiesUtils;
+import edu.stanford.nlp.util.logging.Redwood;
 
 /**
  * Implements the Annotator for the new deterministic coreference resolution system.
@@ -34,12 +45,15 @@ import edu.stanford.nlp.util.*;
 public class DeterministicCorefAnnotator implements Annotator  {
 
   /** A logger for this class */
-  private static Redwood.RedwoodChannels log = Redwood.channels(DeterministicCorefAnnotator.class);
+  private static final Redwood.RedwoodChannels log = Redwood.channels(DeterministicCorefAnnotator.class);
 
   private static final boolean VERBOSE = false;
 
   private final MentionExtractor mentionExtractor;
   private final SieveCoreferenceSystem corefSystem;
+
+  private boolean performMentionDetection;
+  private CorefMentionAnnotator mentionAnnotator;
 
 
   // for backward compatibility
@@ -53,19 +67,40 @@ public class DeterministicCorefAnnotator implements Annotator  {
       mentionExtractor = new MentionExtractor(corefSystem.dictionaries(), corefSystem.semantics());
       OLD_FORMAT = Boolean.parseBoolean(props.getProperty("oldCorefFormat", "false"));
       allowReparsing = PropertiesUtils.getBool(props, Constants.ALLOW_REPARSING_PROP, Constants.ALLOW_REPARSING);
+      // unless custom mention detection is set, just use the default coref mention detector
+      performMentionDetection = !PropertiesUtils.getBool(props, "dcoref.useCustomMentionDetection", false);
+      if (performMentionDetection)
+        mentionAnnotator = new CorefMentionAnnotator(props);
     } catch (Exception e) {
       log.error("cannot create DeterministicCorefAnnotator!");
-      e.printStackTrace();
+      log.error(e);
       throw new RuntimeException(e);
     }
   }
 
-  public static String signature(Properties props) {
-    return SieveCoreferenceSystem.signature(props);
+  // flip which granularity of ner tag is primary
+  public void setNamedEntityTagGranularity(Annotation annotation, String granularity) {
+    List<CoreLabel> tokens = annotation.get(CoreAnnotations.TokensAnnotation.class);
+    Class<? extends CoreAnnotation<String>> sourceNERTagClass;
+    if (granularity.equals("fine"))
+      sourceNERTagClass = CoreAnnotations.FineGrainedNamedEntityTagAnnotation.class;
+    else if (granularity.equals("coarse"))
+      sourceNERTagClass = CoreAnnotations.CoarseNamedEntityTagAnnotation.class;
+    else
+      sourceNERTagClass = CoreAnnotations.NamedEntityTagAnnotation.class;
+    // switch tags
+    for (CoreLabel token : tokens) {
+      if (!token.get(sourceNERTagClass).equals("") && token.get(sourceNERTagClass) != null)
+        token.set(CoreAnnotations.NamedEntityTagAnnotation.class, token.get(sourceNERTagClass));
+    }
   }
 
   @Override
   public void annotate(Annotation annotation) {
+    // temporarily set the primary named entity tag to the coarse tag
+    setNamedEntityTagGranularity(annotation, "coarse");
+    if (performMentionDetection)
+      mentionAnnotator.annotate(annotation);
     try {
       List<Tree> trees = new ArrayList<>();
       List<List<CoreLabel>> sentences = new ArrayList<>();
@@ -81,7 +116,7 @@ public class DeterministicCorefAnnotator implements Annotator  {
           Tree tree = sentence.get(TreeCoreAnnotations.TreeAnnotation.class);
           trees.add(tree);
 
-          SemanticGraph dependencies = SemanticGraphFactory.makeFromTree(tree, Mode.COLLAPSED, Extras.NONE, true, null, true); // locking here is crucial for correct threading!
+          SemanticGraph dependencies = SemanticGraphFactory.makeFromTree(tree, Mode.COLLAPSED, Extras.NONE, null, true); // locking here is crucial for correct threading!
           sentence.set(SemanticGraphCoreAnnotations.AlternativeDependenciesAnnotation.class, dependencies);
 
           if (!hasSpeakerAnnotations) {
@@ -122,8 +157,8 @@ public class DeterministicCorefAnnotator implements Annotator  {
       }
 
 
-      Map<Integer, edu.stanford.nlp.hcoref.data.CorefChain> result = corefSystem.corefReturnHybridOutput(document);
-      annotation.set(edu.stanford.nlp.hcoref.CorefCoreAnnotations.CorefChainAnnotation.class, result);
+      Map<Integer, edu.stanford.nlp.coref.data.CorefChain> result = corefSystem.corefReturnHybridOutput(document);
+      annotation.set(edu.stanford.nlp.coref.CorefCoreAnnotations.CorefChainAnnotation.class, result);
 
       if(OLD_FORMAT) {
         Map<Integer, CorefChain> oldResult = corefSystem.coref(document);
@@ -133,6 +168,9 @@ public class DeterministicCorefAnnotator implements Annotator  {
       throw e;
     } catch (Exception e) {
       throw new RuntimeException(e);
+    } finally {
+      // restore to the fine-grained
+      setNamedEntityTagGranularity(annotation, "fine");
     }
   }
 
@@ -183,7 +221,7 @@ public class DeterministicCorefAnnotator implements Annotator  {
     annotation.set(CorefCoreAnnotations.CorefGraphAnnotation.class, graph);
 
     for (CorefChain corefChain : result.values()) {
-      if(corefChain.getMentionsInTextualOrder().size() < 2) continue;
+      if (corefChain.getMentionsInTextualOrder().size() < 2) continue;
       Set<CoreLabel> coreferentTokens = Generics.newHashSet();
       for (CorefMention mention : corefChain.getMentionsInTextualOrder()) {
         CoreMap sentence = annotation.get(CoreAnnotations.SentencesAnnotation.class).get(mention.sentNum - 1);

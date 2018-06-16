@@ -11,53 +11,47 @@ import static edu.stanford.nlp.ling.tokensregex.SequenceMatcher.FindType.FIND_NO
 /**
  * A generic sequence matcher.
  *
- * <p>
  * Similar to Java's {@code Matcher} except it matches sequences over an arbitrary type {@code T}
  *   instead of characters.
  * For a type {@code T} to be matchable, it has to have a corresponding {@code NodePattern<T>} that indicates
  *    whether a node is matched or not.
- * </p>
  *
- * <p>
  * A matcher is created as follows:
- * <pre><code>
+ *
+ * {@code
  *   SequencePattern<T> p = SequencePattern<T>.compile("...");
  *   SequencePattern<T> m = p.getMatcher(List<T> sequence);
- * </code></pre>
- * </p>
+ * }
  *
- * <p>
+ *
  * Functions for searching
- * <pre><code>
+ * <pre>{@code
  *    boolean matches()
  *    boolean find()
  *    boolean find(int start)
- * </code></pre>
+ * }</pre>
  * Functions for retrieving matched patterns
- * <pre><code>
+ * <pre>{@code
  *    int groupCount()
- *    List&lt;T&gt; groupNodes(), List&lt;T&gt; groupNodes(int g)
+ *    List<T> groupNodes(), List<T> groupNodes(int g)
  *    String group(), String group(int g)
  *    int start(), int start(int g), int end(), int end(int g)
- * </code></pre>
+ * }</pre>
  * Functions for replacing
- * <pre><code>
- *    List&lt;T&gt; replaceFirst(List&lt;T&gt; seq), List replaceAll(List&lt;T&gt; seq)
- *    List&lt;T&gt; replaceFirstExtended(List&lt;MatchReplacement&lt;T&gt;&gt; seq), List&lt;T&gt; replaceAllExtended(List&lt;MatchReplacement&lt;T&gt;&gt; seq)
- * </code></pre>
+ * <pre>{@code
+ *    List<T> replaceFirst(List<T> seq), List replaceAll(List<T> seq)
+ *    List<T> replaceFirstExtended(List<MatchReplacement<T>> seq), List<T> replaceAllExtended(List<MatchReplacement<T>> seq)
+ * }</pre>
  * Functions for defining the region of the sequence to search over
  *  (default region is entire sequence)
- * <pre><code>
+ * <pre>{@code
  *     void region(int start, int end)
  *     int regionStart()
  *     int regionEnd()
- * </code></pre>
- * </p>
+ * }</pre>
  *
- * <p>
  * NOTE: When find is used, matches are attempted starting from the specified start index of the sequence
  *   The match with the earliest starting index is returned.
- * </p>
  *
  * @author Angel Chang
  */
@@ -92,7 +86,7 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
   Set<String> prevMatchedSignatures = new HashSet<>();
 
   // Branching limit for searching with back tracking. Higher value makes the search faster but uses more memory.
-  int branchLimit = 2;
+  int branchLimit = 32;
 
   protected SequenceMatcher(SequencePattern<T> pattern, List<? extends T> elements)
   {
@@ -119,7 +113,7 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
    * Interface that specifies what to replace a matched pattern with
    * @param <T>
    */
-  public static interface MatchReplacement<T> {
+  public interface MatchReplacement<T> {
     /**
      * Append to replacement list
      * @param match Current matched sequence
@@ -135,6 +129,7 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
   public static class BasicMatchReplacement<T> implements MatchReplacement<T>  {
     List<T> replacement;
 
+    @SafeVarargs
     public BasicMatchReplacement(T... replacement) {
       this.replacement = Arrays.asList(replacement);
     }
@@ -148,6 +143,7 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
      * @param match Current matched sequence
      * @param list replacement list
      */
+    @Override
     public void append(SequenceMatchResult<T> match, List list) {
       list.addAll(replacement);
     }
@@ -468,8 +464,7 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
     }
   }
 
-  protected boolean findMatchStart(int start, boolean matchAllTokens)
-  {
+  protected boolean findMatchStart(int start, boolean matchAllTokens) {
     switch (findType) {
       case FIND_NONOVERLAPPING:
         return findMatchStartBacktracking(start, matchAllTokens);
@@ -483,10 +478,10 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
   }
 
   // Does not do backtracking - alternative matches are stored as we go
-  protected boolean findMatchStartNoBacktracking(int start, boolean matchAllTokens)
-  {
+  protected boolean findMatchStartNoBacktracking(int start, boolean matchAllTokens) {
     boolean matchAll = true;
     MatchedStates<T> cStates = getStartStates();
+    cStates.matchLongest = matchAllTokens;
     // Save cStates for FIND_ALL ....
     curMatchStates = cStates;
     for(int i = start; i < regionEnd; i++){
@@ -507,11 +502,11 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
   }
 
   // Does some backtracking...
-  protected boolean findMatchStartBacktracking(int start, boolean matchAllTokens)
-  {
+  protected boolean findMatchStartBacktracking(int start, boolean matchAllTokens) {
     boolean matchAll = true;
     Stack<MatchedStates> todo = new Stack<>();
     MatchedStates cStates = getStartStates();
+    cStates.matchLongest = matchAllTokens;
     cStates.curPosition = start-1;
     todo.push(cStates);
     while (!todo.empty()) {
@@ -521,8 +516,8 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
         if (Thread.interrupted()) {
           throw new RuntimeInterruptedException();
         }
-        boolean match = cStates.match(i);
-        if (cStates == null || cStates.size() == 0) {
+        cStates.match(i);
+        if (cStates.size() == 0) {
           break;
         }
         if (!matchAllTokens) {
@@ -551,8 +546,7 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
    * @return true if the entire sequence is matched (false otherwise)
    * @see #find()
    */
-  public boolean matches()
-  {
+  public boolean matches() {
     matched = false;
     matchingCompleted = false;
     boolean status = findMatchStart(0, true);
@@ -565,8 +559,7 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
     return status;
   }
 
-  private void clearMatched()
-  {
+  private void clearMatched() {
     for (int i = 0; i < matchedGroups.length; i++) {
       matchedGroups[i] = null;
     }
@@ -577,8 +570,7 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
     }
   }
 
-  private String getStateMessage()
-  {
+  private String getStateMessage() {
     if (!matchingCompleted) {
       return "Matching not completed";
     } else if (!matched) {
@@ -593,8 +585,7 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
    * @param start - start index
    * @param end - end index (exclusive)
    */
-  public void region(int start, int end)
-  {
+  public void region(int start, int end) {
     if (start < 0 || start > elements.size()) {
       throw new IndexOutOfBoundsException("Invalid region start=" + start + ", need to be between 0 and " + elements.size());
     }
@@ -895,7 +886,7 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
     // (the branch index is with respect to parent, from 1 to number of branches the parent has)
     // TODO: This index can grow rather large, use index that allows for shrinkage
     //       (has remove function and generate new id every time)
-    HashIndex<Pair<Integer,Integer>> bidIndex = new HashIndex<>(4);
+    HashIndex<Pair<Integer,Integer>> bidIndex = new HashIndex<>(512);
     // Map of branch id to branch state
     Map<Integer,BranchState> branchStates = new HashMap<>();//Generics.newHashMap();
     // The activeMatchedStates is only kept to determine what branch states are still needed
@@ -1001,13 +992,8 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
       */
     }
 
-    /**
-     * Given a branch id, return a list of parent branches
-     * @param bid  branch id
-     * @return list of parent branch ids
-     */
-    private List<Integer> getParents(int bid)
-    {
+    /** A safe version of {@link SequenceMatcher.BranchStates#getParents(int, Integer[])} */
+    private List<Integer> getParents(int bid) {
       List<Integer> pids = new ArrayList<>();
       Pair<Integer,Integer> p = bidIndex.get(bid);
       while (p != null && p.first() >= 0) {
@@ -1019,6 +1005,28 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
     }
 
     /**
+     * Given a branch id, return a list of parent branches
+     * @param bid  branch id
+     * @return list of parent branch ids
+     */
+    private List<Integer> getParents(int bid, Integer[] buffer)
+    {
+      int index = buffer.length - 1;
+      buffer[index] = bid;
+      index -= 1;
+      Pair<Integer,Integer> p = bidIndex.get(bid);
+      while (p != null && p.first() >= 0) {
+        buffer[index] = p.first;
+        index -= 1;
+        if (index < 0) {
+          return getParents(bid);  // optimization failed -- back off to the old version
+        }
+        p = bidIndex.get(p.first());
+      }
+      return Arrays.asList(buffer).subList(index + 1, buffer.length);
+    }
+
+    /**
      * Returns the branch state for a given branch id
      * (the appropriate ancestor branch state is returned if
      *  there is no branch state associated with the given branch id)
@@ -1027,12 +1035,13 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
      */
     protected BranchState getBranchState(int bid)
     {
+
       BranchState bs = branchStates.get(bid);
       if (bs == null) {
         BranchState pbs = null;
         int id = bid;
         while (pbs == null && id >= 0) {
-          Pair<Integer,Integer> p = bidIndex.get(id);
+          Pair<Integer, Integer> p = bidIndex.get(id);
           id = p.first;
           pbs = branchStates.get(id);
         }
@@ -1338,6 +1347,8 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
     List<State> states;
     // Current position to match
     int curPosition = -1;
+    // Favor matching longest
+    boolean matchLongest;
 
     protected MatchedStates(SequenceMatcher<T> matcher, SequencePattern.State state)
     {
@@ -1459,13 +1470,16 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
       return matched;
     }
 
+
+    private final Integer[] p1Buffer = new Integer[128];
+    private final Integer[] p2Buffer = new Integer[128];
     protected int compareMatches(int bid1, int bid2)
     {
       if (bid1 == bid2) return 0;
-      List<Integer> p1 = branchStates.getParents(bid1);
-      p1.add(bid1);
-      List<Integer> p2 = branchStates.getParents(bid2);
-      p2.add(bid2);
+      List<Integer> p1 = branchStates.getParents(bid1, p1Buffer);
+//      p1.add(bid1);
+      List<Integer> p2 = branchStates.getParents(bid2, p2Buffer);
+//      p2.add(bid2);
       int n = Math.min(p1.size(), p2.size());
       for (int i = 0; i < n; i++) {
         if (p1.get(i) < p2.get(i)) return -1;
@@ -1513,18 +1527,34 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
     {
       int best = -1;
       int bestbid = -1;
+      MatchedGroup bestMatched = null;
+      int bestMatchedLength = -1;
       for (int i = 0; i < states.size(); i++) {
         State state = states.get(i);
         if (state.tstate.equals(SequencePattern.MATCH_STATE)) {
           if (best < 0) {
             best = i;
             bestbid = state.bid;
+            bestMatched = branchStates.getMatchedGroup(bestbid, 0);
+            bestMatchedLength = (bestMatched != null)? bestMatched.matchLength() : -1;
           } else {
             // Compare if this match is better?
             int bid = state.bid;
-            if (compareMatches(bestbid, bid) > 0) {
+            MatchedGroup mg = branchStates.getMatchedGroup(bid, 0);
+            int matchLength = (mg != null)? mg.matchLength() : -1;
+            // Select the branch that matched the most
+            // TODO: Do we need to roll the matchedLength to bestMatchedLength check into the compareMatches?
+            boolean better;
+            if (matchLongest) {
+              better = (matchLength > bestMatchedLength || (matchLength == bestMatchedLength && compareMatches(bestbid, bid) > 0));
+            } else {
+              better = compareMatches(bestbid, bid) > 0;
+            }
+            if (better) {
               bestbid = bid;
               best = i;
+              bestMatched = branchStates.getMatchedGroup(bestbid, 0);
+              bestMatchedLength = (bestMatched != null)? bestMatched.matchLength() : -1;
             }
           }
         }
@@ -1633,5 +1663,6 @@ public class SequenceMatcher<T> extends BasicSequenceMatchResult<T> {
       branchStates.clearGroupStart(bid, captureGroupId);
     }
 
-  }
+  } // end static class MatchedStates
+
 }

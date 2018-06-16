@@ -43,6 +43,37 @@ public abstract class AnnotationSerializer {
    */
   public abstract Pair<Annotation, InputStream> read(InputStream is) throws IOException, ClassNotFoundException, ClassCastException;
 
+  /**
+   * Append a CoreDocument to this output stream.
+   *
+   * @param document The CoreDocument to serialize (its internal annotation is serialized)
+   * @param os The output stream to serialize to
+   * @return The output stream which should be closed
+   * @throws IOException
+   */
+  public OutputStream writeCoreDocument(CoreDocument document, OutputStream os) throws IOException {
+    Annotation wrappedAnnotation = document.annotation();
+    return write(wrappedAnnotation, os);
+  }
+
+  /**
+   * Read in a CoreDocument from this input stream.
+   *
+   * @param is The input stream to read a CoreDocument's annotation from
+   * @return A pair with the CoreDocument and the input stream
+   * @throws IOException
+   * @throws ClassNotFoundException
+   * @throws ClassCastException
+   */
+
+  public Pair<CoreDocument, InputStream> readCoreDocument(InputStream is)
+      throws IOException, ClassNotFoundException, ClassCastException {
+    Pair<Annotation, InputStream> readPair = read(is);
+    CoreDocument readCoreDocument = new CoreDocument(readPair.first());
+    return new Pair<CoreDocument, InputStream>(readCoreDocument, is);
+  }
+
+
   public static class IntermediateNode {
     String docId;
     int sentIndex;
@@ -89,13 +120,13 @@ public abstract class AnnotationSerializer {
     }
 
     private static final Object LOCK = new Object();
-    
+
     public SemanticGraph convertIntermediateGraph(List<CoreLabel> sentence) {
       SemanticGraph graph = new SemanticGraph();
-      
-      // first construct the actual nodes; keep them indexed by their index and copy count
-      // sentences such as "I went over the river and through the woods" have
-      // copys for "went" in the collapsed dependencies
+
+      // First construct the actual nodes; keep them indexed by their index and copy count.
+      // Sentences such as "I went over the river and through the woods" have
+      // two copies for "went" in the collapsed dependencies.
       TwoDimensionalMap<Integer, Integer, IndexedWord> nodeMap = TwoDimensionalMap.hashMap();
       for (IntermediateNode in: nodes){
         CoreLabel token = sentence.get(in.index - 1); // index starts at 1!
@@ -107,7 +138,7 @@ public abstract class AnnotationSerializer {
         } else {
           word = new IndexedWord(token);
         }
-        
+
         // for backwards compatibility - new annotations should have
         // these fields set, but annotations older than August 2014 might not
         if (word.docID() == null && in.docId != null) {
@@ -118,17 +149,17 @@ public abstract class AnnotationSerializer {
         }
         if (word.index() < 0 && in.index >= 0) {
           word.setIndex(in.index);
-        }      
-        
+        }
+
         nodeMap.put(word.index(), word.copyCount(), word);
         graph.addVertex(word);
         if (in.isRoot) {
           graph.addRoot(word);
         }
       }
-      
+
       // add all edges to the actual graph
-      for(IntermediateEdge ie: edges){
+      for (IntermediateEdge ie: edges) {
         IndexedWord source = nodeMap.get(ie.source, ie.sourceCopy);
         if (source == null) {
           throw new RuntimeIOException("Failed to find node " + ie.source + "-" + ie.sourceCopy);
@@ -137,14 +168,14 @@ public abstract class AnnotationSerializer {
         if (target == null) {
           throw new RuntimeIOException("Failed to find node " + ie.target + "-" + ie.targetCopy);
         }
-        assert(target != null);
+        // assert(target != null);
         synchronized (LOCK) {
           // this is not thread-safe: there are static fields in GrammaticalRelation
           GrammaticalRelation rel = GrammaticalRelation.valueOf(ie.dep);
           graph.addEdge(source, target, rel, 1.0, ie.isExtra);
         }
       }
-      
+
       // compute root nodes if they weren't stored in the graph
       if (!graph.isEmpty() && graph.getRoots().size() == 0){
         graph.resetRoots();
@@ -153,4 +184,5 @@ public abstract class AnnotationSerializer {
       return graph;
     }
   }
+
 }

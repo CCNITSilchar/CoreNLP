@@ -36,9 +36,32 @@ public class NaturalLogicAnnotations {
   }
 
   /**
+   * An annotation, similar to {@link PolarityAnnotation}, which just measures whether
+   * the polarity of a token is upwards, downwards, or flat.
+   * This annotation always has values either "up", "down", or "flat".
+   */
+  public static final class PolarityDirectionAnnotation implements CoreAnnotation<String> {
+    @Override
+    public Class<String> getType() {
+      return String.class;
+    }
+  }
+
+  /**
    * The set of sentences which are entailed by the original sentence, according to Natural Logic semantics.
    */
   public static final class EntailedSentencesAnnotation implements CoreAnnotation<Collection<SentenceFragment>> {
+    @SuppressWarnings("unchecked")
+    @Override
+    public Class<Collection<SentenceFragment>> getType() {
+      return (Class<Collection<SentenceFragment>>) ((Object) Collection.class);
+    }
+  }
+
+  /**
+   * A set of clauses contained in and entailed by this sentence.
+   */
+  public static final class EntailedClausesAnnotation implements CoreAnnotation<Collection<SentenceFragment>> {
     @SuppressWarnings("unchecked")
     @Override
     public Class<Collection<SentenceFragment>> getType() {

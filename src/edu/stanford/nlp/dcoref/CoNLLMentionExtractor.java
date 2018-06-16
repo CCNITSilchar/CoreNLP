@@ -28,7 +28,9 @@ package edu.stanford.nlp.dcoref;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -49,7 +51,8 @@ import edu.stanford.nlp.util.CoreMap;
 import edu.stanford.nlp.util.Pair;
 
 /**
- * Extracts coref mentions from a CoNLL2011 data files
+ * Extracts coref mentions from CoNLL2011 data files.
+ *
  * @author Angel Chang
  */
 public class CoNLLMentionExtractor extends MentionExtractor {
@@ -84,7 +87,6 @@ public class CoNLLMentionExtractor extends MentionExtractor {
     singletonPredictor = singletonModel;
   }
 
-  private static final boolean includeExtras = false;
   private static final boolean LEMMATIZE = true;
   private static final boolean threadSafe = true;
 
@@ -118,13 +120,10 @@ public class CoNLLMentionExtractor extends MentionExtractor {
         }
         // generate the dependency graph
         try {
-          SemanticGraph deps = SemanticGraphFactory.makeFromTree(tree,
-              SemanticGraphFactory.Mode.COLLAPSED, includeExtras ? GrammaticalStructure.Extras.MAXIMAL : GrammaticalStructure.Extras.NONE, threadSafe, null, true);
-          SemanticGraph basicDeps = SemanticGraphFactory.makeFromTree(tree,
-              SemanticGraphFactory.Mode.BASIC, includeExtras ? GrammaticalStructure.Extras.MAXIMAL : GrammaticalStructure.Extras.NONE, threadSafe, null, true);
+          SemanticGraph deps = SemanticGraphFactory.makeFromTree(tree, SemanticGraphFactory.Mode.ENHANCED, GrammaticalStructure.Extras.NONE);
+          SemanticGraph basicDeps = SemanticGraphFactory.makeFromTree(tree, SemanticGraphFactory.Mode.BASIC, GrammaticalStructure.Extras.NONE);
           sentence.set(SemanticGraphCoreAnnotations.BasicDependenciesAnnotation.class, basicDeps);
-          sentence.set(SemanticGraphCoreAnnotations.CollapsedDependenciesAnnotation.class, deps);
-          sentence.set(SemanticGraphCoreAnnotations.AlternativeDependenciesAnnotation.class, deps);
+          sentence.set(SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class, deps);
         } catch(Exception e) {
           logger.log(Level.WARNING, "Exception caught during extraction of Stanford dependencies. Will ignore and continue...", e);
         }
@@ -177,7 +176,7 @@ public class CoNLLMentionExtractor extends MentionExtractor {
     return doc;
   }
 
-  public static List<List<Mention>> makeCopy(List<List<Mention>> mentions) {
+  private static List<List<Mention>> makeCopy(List<List<Mention>> mentions) {
     List<List<Mention>> copy = new ArrayList<>(mentions.size());
     for (List<Mention> sm:mentions) {
       List<Mention> sm2 = new ArrayList<>(sm.size());
@@ -241,10 +240,10 @@ public class CoNLLMentionExtractor extends MentionExtractor {
       }
     }
     int newMentionID = maxCorefClusterId + 1;
-    for (String corefIdStr:corefChainMap.keySet()) {
-      int id = Integer.parseInt(corefIdStr);
+    for (Map.Entry<String, Collection<CoreMap>> idChainEntry : corefChainMap.entrySet()) {
+      int id = Integer.parseInt(idChainEntry.getKey());
       int clusterMentionCnt = 0;
-      for (CoreMap m:corefChainMap.get(corefIdStr)) {
+      for (CoreMap m : idChainEntry.getValue()) {
         clusterMentionCnt++;
         Mention mention = new Mention();
 
@@ -267,8 +266,8 @@ public class CoNLLMentionExtractor extends MentionExtractor {
         // will be set by arrange
         mention.originalSpan = m.get(CoreAnnotations.TokensAnnotation.class);
 
-        // Mention dependency is collapsed dependency for sentence
-        mention.dependency = sentences.get(sentIndex).get(SemanticGraphCoreAnnotations.AlternativeDependenciesAnnotation.class);
+        // Mention dependency graph is the enhanced dependency graph of the sentence
+        mention.dependency = sentences.get(sentIndex).get(SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class);
 
         allGoldMentions.get(sentIndex).add(mention);
       }

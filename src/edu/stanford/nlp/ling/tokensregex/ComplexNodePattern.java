@@ -40,13 +40,14 @@ public class ComplexNodePattern<M,K> extends NodePattern<M> {
     return Collections.unmodifiableList(annotationPatterns);
   }
 
-  // TODO: make this a pattern of non special characters: [,],?,.,\,^,$,(,),*,+ ... what else?
-  private static final Pattern LITERAL_PATTERN = Pattern.compile("[A-Za-z0-9_\\-']*");
+  // TODO: make this a pattern of non special characters: [,],?,.,\,^,$,(,),*,+,{,},| ... what else?
+  private static final Pattern LITERAL_PATTERN = Pattern.compile("[^\\[\\]?.\\\\^$()*+{}|]*");
+  //private static final Pattern LITERAL_PATTERN = Pattern.compile("[A-Za-z0-9_\\-']*");
   public static NodePattern<String> newStringRegexPattern(String regex, int flags) {
     boolean isLiteral = ((flags & Pattern.LITERAL) != 0) || LITERAL_PATTERN.matcher(regex).matches();
     if (isLiteral) {
-      boolean caseInsensitive = (flags & Pattern.CASE_INSENSITIVE) != 0;
-      int stringMatchFlags = (caseInsensitive)? CASE_INSENSITIVE:0;
+      boolean caseInsensitive = (flags & (Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE)) != 0;
+      int stringMatchFlags = (caseInsensitive)? (CASE_INSENSITIVE | UNICODE_CASE):0;
       return new StringAnnotationPattern(regex, stringMatchFlags);
     } else {
       return new StringAnnotationRegexPattern(regex, flags);
@@ -288,7 +289,7 @@ public class ComplexNodePattern<M,K> extends NodePattern<M> {
     int flags;
 
     public boolean ignoreCase() {
-      return (flags & CASE_INSENSITIVE) != 0;
+      return (flags & (CASE_INSENSITIVE | UNICODE_CASE)) != 0;
     }
 
     public boolean normalize() {

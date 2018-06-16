@@ -7,11 +7,7 @@ import java.util.*;
 import edu.stanford.nlp.ling.CoreAnnotation;
 import edu.stanford.nlp.ling.CoreAnnotations;
 import edu.stanford.nlp.ling.CoreLabel;
-import edu.stanford.nlp.process.TokenizerFactory;
-import edu.stanford.nlp.process.CoreLabelTokenFactory;
-import edu.stanford.nlp.process.PTBTokenizer;
-import edu.stanford.nlp.process.Tokenizer;
-import edu.stanford.nlp.process.WhitespaceTokenizer;
+import edu.stanford.nlp.process.*;
 import edu.stanford.nlp.international.spanish.process.SpanishTokenizer;
 import edu.stanford.nlp.international.french.process.FrenchTokenizer;
 import edu.stanford.nlp.util.Generics;
@@ -42,6 +38,8 @@ public class TokenizerAnnotator implements Annotator  {
    */
   public enum TokenizerType {
     Unspecified(null, null, "invertible,ptb3Escaping=true"),
+    Arabic     ("ar", null, ""),
+    Chinese    ("zh", null, ""),
     Spanish    ("es", "SpanishTokenizer", "invertible,ptb3Escaping=true,splitAll=true"),
     English    ("en", "PTBTokenizer", "invertible,ptb3Escaping=true"),
     German     ("de", null, "invertible,ptb3Escaping=true"),
@@ -128,11 +126,44 @@ public class TokenizerAnnotator implements Annotator  {
   private final boolean VERBOSE;
   private final TokenizerFactory<CoreLabel> factory;
 
+  /** new segmenter properties **/
+  private final boolean useSegmenter;
+  private final Annotator segmenterAnnotator;
+
   // CONSTRUCTORS
 
   /** Gives a non-verbose, English tokenizer. */
   public TokenizerAnnotator() {
     this(false);
+  }
+
+
+  private static String computeExtraOptions(Properties properties) {
+    String extraOptions = null;
+    boolean keepNewline = Boolean.valueOf(properties.getProperty(StanfordCoreNLP.NEWLINE_SPLITTER_PROPERTY, "false")); // ssplit.eolonly
+
+    String hasSsplit = properties.getProperty("annotators");
+    if (hasSsplit != null && hasSsplit.contains(StanfordCoreNLP.STANFORD_SSPLIT)) { // ssplit
+      // Only possibly put in *NL* if not all one (the Boolean method treats null as false)
+      if ( ! Boolean.parseBoolean(properties.getProperty("ssplit.isOneSentence"))) {
+        // Set to { NEVER, ALWAYS, TWO_CONSECUTIVE } based on  ssplit.newlineIsSentenceBreak
+        String nlsbString = properties.getProperty(StanfordCoreNLP.NEWLINE_IS_SENTENCE_BREAK_PROPERTY,
+            StanfordCoreNLP.DEFAULT_NEWLINE_IS_SENTENCE_BREAK);
+        WordToSentenceProcessor.NewlineIsSentenceBreak nlsb = WordToSentenceProcessor.stringToNewlineIsSentenceBreak(nlsbString);
+        if (nlsb != WordToSentenceProcessor.NewlineIsSentenceBreak.NEVER) {
+          keepNewline = true;
+        }
+      }
+    }
+    if (keepNewline) {
+      extraOptions = "tokenizeNLs,";
+    }
+    return extraOptions;
+  }
+
+
+  public TokenizerAnnotator(Properties properties) {
+    this(false, properties, computeExtraOptions(properties));
   }
 
   public TokenizerAnnotator(boolean verbose) {
@@ -152,13 +183,7 @@ public class TokenizerAnnotator implements Annotator  {
   }
 
   public TokenizerAnnotator(boolean verbose, String lang, String options) {
-    Properties props = new Properties();
-    if (lang != null) {
-      props.setProperty("tokenize.language", lang);
-    }
-    VERBOSE = PropertiesUtils.getBool(props, "tokenize.verbose", verbose);
-    TokenizerType type = TokenizerType.getTokenizerType(props);
-    factory = initFactory(type, props, options);
+    this(verbose, lang == null ? null : PropertiesUtils.asProperties("tokenize.language", lang), options);
   }
 
   public TokenizerAnnotator(boolean verbose, Properties props) {
@@ -168,6 +193,25 @@ public class TokenizerAnnotator implements Annotator  {
   public TokenizerAnnotator(boolean verbose, Properties props, String options) {
     if (props == null) {
       props = new Properties();
+    }
+    // check if segmenting must be done
+    if (props.getProperty("tokenize.language") != null &&
+            LanguageInfo.isSegmenterLanguage(props.getProperty("tokenize.language"))) {
+      useSegmenter = true;
+      if (LanguageInfo.getLanguageFromString(
+              props.getProperty("tokenize.language")) == LanguageInfo.HumanLanguage.ARABIC)
+        segmenterAnnotator = new ArabicSegmenterAnnotator("segment", props);
+      else if (LanguageInfo.getLanguageFromString(
+              props.getProperty("tokenize.language")) == LanguageInfo.HumanLanguage.CHINESE)
+        segmenterAnnotator = new ChineseSegmenterAnnotator("segment", props);
+      else {
+        segmenterAnnotator = null;
+        throw new RuntimeException("No segmenter implemented for: "+
+                LanguageInfo.getLanguageFromString(props.getProperty("tokenize.language")));
+      }
+    } else {
+      useSegmenter = false;
+      segmenterAnnotator = null;
     }
     VERBOSE = PropertiesUtils.getBool(props, "tokenize.verbose", verbose);
     TokenizerType type = TokenizerType.getTokenizerType(props);
@@ -205,6 +249,12 @@ public class TokenizerAnnotator implements Annotator  {
     }
 
     switch(type) {
+
+    case Arabic:
+    case Chinese:
+      factory = null;
+      break;
+
     case Spanish:
       factory = SpanishTokenizer.factory(new CoreLabelTokenFactory(), options);
       break;
@@ -245,6 +295,31 @@ public class TokenizerAnnotator implements Annotator  {
   }
 
   /**
+   * Helper method to set the TokenBeginAnnotation and TokenEndAnnotation of every token.
+   */
+  public void setTokenBeginTokenEnd(List<CoreLabel> tokensList) {
+    int tokenIndex = 0;
+    for (CoreLabel token : tokensList) {
+      token.set(CoreAnnotations.TokenBeginAnnotation.class, tokenIndex);
+      token.set(CoreAnnotations.TokenEndAnnotation.class, tokenIndex+1);
+      tokenIndex++;
+    }
+  }
+
+  /**
+   * set isNewline()
+   */
+  public void setNewlineStatus(List<CoreLabel> tokensList) {
+    // label newlines
+    for (CoreLabel token : tokensList) {
+      if (token.word().equals(AbstractTokenizer.NEWLINE_TOKEN) && (token.endPosition() - token.beginPosition() == 1))
+        token.set(CoreAnnotations.IsNewlineAnnotation.class, true);
+      else
+        token.set(CoreAnnotations.IsNewlineAnnotation.class, false);
+    }
+  }
+
+  /**
    * Does the actual work of splitting TextAnnotation into CoreLabels,
    * which are then attached to the TokensAnnotation.
    */
@@ -252,6 +327,15 @@ public class TokenizerAnnotator implements Annotator  {
   public void annotate(Annotation annotation) {
     if (VERBOSE) {
       log.info("Tokenizing ... ");
+    }
+
+    // for Arabic and Chinese use a segmenter instead
+    if (useSegmenter) {
+      segmenterAnnotator.annotate(annotation);
+      // set indexes into document wide tokens list
+      setTokenBeginTokenEnd(annotation.get(CoreAnnotations.TokensAnnotation.class));
+      setNewlineStatus(annotation.get(CoreAnnotations.TokensAnnotation.class));
+      return;
     }
 
     if (annotation.containsKey(CoreAnnotations.TextAnnotation.class)) {
@@ -265,7 +349,15 @@ public class TokenizerAnnotator implements Annotator  {
       // token.set(CoreAnnotations.TextAnnotation.class, token.get(CoreAnnotations.TextAnnotation.class));
       // }
 
+      // label newlines
+      setNewlineStatus(tokens);
+
+      // set indexes into document wide token list
+      setTokenBeginTokenEnd(tokens);
+
+      // add tokens list to annotation
       annotation.set(CoreAnnotations.TokensAnnotation.class, tokens);
+
       if (VERBOSE) {
         log.info("done.");
         log.info("Tokens: " + annotation.get(CoreAnnotations.TokensAnnotation.class));
@@ -294,7 +386,8 @@ public class TokenizerAnnotator implements Annotator  {
         CoreAnnotations.PositionAnnotation.class,
         CoreAnnotations.IndexAnnotation.class,
         CoreAnnotations.OriginalTextAnnotation.class,
-        CoreAnnotations.ValueAnnotation.class
+        CoreAnnotations.ValueAnnotation.class,
+        CoreAnnotations.IsNewlineAnnotation.class
     ));
   }
 

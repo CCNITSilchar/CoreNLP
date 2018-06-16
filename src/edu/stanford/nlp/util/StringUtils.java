@@ -32,7 +32,7 @@ import java.util.stream.Stream;
  * table columns: {@link #padLeft(int, int)}, {@link #pad(String, int)}.
  *
  * <p>Example: print a comma-separated list of numbers:</p>
- * <p><code>System.out.println(StringUtils.pad(nums, &quot;, &quot;));</code></p>
+ * <p>{@code System.out.println(StringUtils.pad(nums, &quot;, &quot;));}</p>
  * <p>Example: print a 2D array of numbers with 8-char cells:</p>
  * <p><code>for(int i = 0; i &lt; nums.length; i++) {<br>
  * &nbsp;&nbsp;&nbsp; for(int j = 0; j &lt; nums[i].length; j++) {<br>
@@ -49,6 +49,9 @@ import java.util.stream.Stream;
  * @version 2006/02/03
  */
 public class StringUtils  {
+
+  // todo [cdm 2016]: Remove CoreMap/CoreLabel methods from this class
+  // todo [cdm 2016]: Write a really good join method for this class, like William's Ruby one
 
   /** A logger for this class */
   private static final Redwood.RedwoodChannels log = Redwood.channels(StringUtils.class);
@@ -81,14 +84,15 @@ public class StringUtils  {
   }
 
   /**
-   * Convenience method: a case-insensitive variant of Collection.contains
+   * Convenience method: a case-insensitive variant of Collection.contains.
+   *
    * @param c Collection&lt;String&gt;
    * @param s String
    * @return true if s case-insensitively matches a string in c
    */
   public static boolean containsIgnoreCase(Collection<String> c, String s) {
-    for (String squote: c) {
-      if (squote.equalsIgnoreCase(s))
+    for (String sPrime: c) {
+      if (sPrime.equalsIgnoreCase(s))
         return true;
     }
     return false;
@@ -131,7 +135,7 @@ public class StringUtils  {
       }
     }
     String[] mapArr = new String[maxIndex + 1];
-    Arrays.fill(mapArr, null);
+    // Arrays.fill(mapArr, null); // not needed; Java arrays zero initialized
     for (int i = 0; i < m.length; i++) {
       mapArr[indices[i]] = keys[i];
     }
@@ -157,8 +161,7 @@ public class StringUtils  {
     return res;
   }
 
-  public static List<Pattern> regexesToPatterns(Iterable<String> regexes)
-  {
+  public static List<Pattern> regexesToPatterns(Iterable<String> regexes) {
     List<Pattern> patterns = new ArrayList<>();
     for (String regex:regexes) {
       patterns.add(Pattern.compile(regex));
@@ -167,7 +170,8 @@ public class StringUtils  {
   }
 
   /**
-   * Given a pattern and a string, returns a list with the values of the
+   * Given a pattern, which contains one or more capturing groups, and a String,
+   * returns a list with the values of the
    * captured groups in the pattern. If the pattern does not match, returns
    * null. Note that this uses Matcher.find() rather than Matcher.matches().
    * If str is null, returns null.
@@ -178,11 +182,11 @@ public class StringUtils  {
     }
 
     Matcher matcher = regex.matcher(str);
-    if (!matcher.find()) {
+    if ( ! matcher.find()) {
       return null;
     }
 
-    List<String> groups = new ArrayList<>();
+    List<String> groups = new ArrayList<>(matcher.groupCount());
     for (int index = 1; index <= matcher.groupCount(); index++) {
       groups.add(matcher.group(index));
     }
@@ -252,23 +256,16 @@ public class StringUtils  {
   }
 
   public static String joinWords(List<? extends HasWord> l, String glue, int start, int end) {
-    return join(l, glue, in -> in.word(), start, end);
+    return join(l, glue, HasWord::word, start, end);
   }
 
-  public static final Function<Object,String> DEFAULT_TOSTRING = new Function<Object, String>() {
-    @Override
-    public String apply(Object in) {
-      return in.toString();
-    }
-  };
+  private static final Function<Object,String> DEFAULT_TOSTRING = Object::toString;
 
   public static String joinFields(List<? extends CoreMap> l, final Class field, final String defaultFieldValue,
                                   String glue, int start, int end, final Function<Object,String> toStringFunc) {
-    return join(l, glue, new Function<CoreMap, String>() {
-      public String apply(CoreMap in) {
-        Object val = in.get(field);
-        return (val != null)? toStringFunc.apply(val):defaultFieldValue;
-      }
+    return join(l, glue, (Function<CoreMap, String>) in -> {
+      Object val = in.get(field);
+      return (val != null)? toStringFunc.apply(val): defaultFieldValue;
     }, start, end);
   }
 
@@ -287,19 +284,17 @@ public class StringUtils  {
 
   public static String joinMultipleFields(List<? extends CoreMap> l, final Class[] fields, final String defaultFieldValue,
                                           final String fieldGlue, String glue, int start, int end, final Function<Object,String> toStringFunc) {
-    return join(l, glue, new Function<CoreMap, String>() {
-      public String apply(CoreMap in) {
-        StringBuilder sb = new StringBuilder();
-        for (Class field: fields) {
-          if (sb.length() > 0) {
-            sb.append(fieldGlue);
-          }
-          Object val = in.get(field);
-          String str = (val != null)? toStringFunc.apply(val):defaultFieldValue;
-          sb.append(str);
+    return join(l, glue, (Function<CoreMap, String>) in -> {
+      StringBuilder sb = new StringBuilder();
+      for (Class field: fields) {
+        if (sb.length() > 0) {
+          sb.append(fieldGlue);
         }
-        return sb.toString();
+        Object val = in.get(field);
+        String str = (val != null)? toStringFunc.apply(val):defaultFieldValue;
+        sb.append(str);
       }
+      return sb.toString();
     }, start, end);
   }
 
@@ -318,7 +313,8 @@ public class StringUtils  {
 
   /**
    * Joins all the tokens together (more or less) according to their original whitespace.
-   * It assumes all whitespace was " "
+   * It assumes all whitespace was " ".
+   *
    * @param tokens list of tokens which implement {@link HasOffset} and {@link HasWord}
    * @return a string of the tokens with the appropriate amount of spacing
    */
@@ -387,28 +383,10 @@ public class StringUtils  {
     return sb.toString();
   }
 
-// Omitted; I'm pretty sure this are redundant with the above
-//  /**
-//   * Joins each elem in the List with the given glue. For example, given a
-//   * list
-//   * of Integers, you can create a comma-separated list by calling
-//   * <tt>join(numbers, ", ")</tt>.
-//   */
-//  public static String join(List l, String glue) {
-//    StringBuilder sb = new StringBuilder();
-//    for (int i = 0, sz = l.size(); i < sz; i++) {
-//      if (i > 0) {
-//        sb.append(glue);
-//      }
-//      sb.append(l.get(i).toString());
-//    }
-//    return sb.toString();
-//  }
-
   /**
    * Joins each elem in the array with the given glue. For example, given a
    * list of ints, you can create a comma-separated list by calling
-   * <code>join(numbers, ", ")</code>.
+   * {@code join(numbers, ", ")}.
    */
   public static String join(Object[] elements, String glue) {
     return (join(Arrays.asList(elements), glue));
@@ -427,17 +405,27 @@ public class StringUtils  {
     boolean isFirst = true;
     for (int i = start; i < end; ++i) {
       if (isFirst) {
-        b.append(elements[i].toString());
+        b.append(elements[i]);
         isFirst = false;
       } else {
-        b.append(glue).append(elements[i].toString());
+        b.append(glue).append(elements[i]);
       }
     }
     return b.toString();
   }
 
   /**
-   * Joins elems with a space.
+   * Joins each element in the given array with the given glue. For example,
+   * given an array of Integers, you can create a comma-separated list by calling
+   * {@code join(numbers, ", ")}.
+   */
+  public static String join(String[] items, String glue) {
+    return join(Arrays.asList(items), glue);
+  }
+
+
+  /**
+   * Joins elements with a space.
    */
   public static String join(Iterable<?> l) {
     return join(l, " ");
@@ -505,13 +493,13 @@ public class StringUtils  {
   }
 
   /**
-   * Splits a string into whitespace tokenized fields based on a delimiter. For example,
-   * "aa bb | bb cc | ccc ddd" would be split into "[aa,bb],[bb,cc],[ccc,ddd]" based on
+   * Splits a string into whitespace tokenized fields based on a delimiter and then whitespace.
+   * For example, "aa bb | bb cc | ccc ddd" would be split into "[aa,bb],[bb,cc],[ccc,ddd]" based on
    * the delimiter "|". This method uses the old StringTokenizer class, which is up to
    * 3x faster than the regex-based "split()" methods.
    *
-   * @param delimiter
-   * @return
+   * @param delimiter String to split on
+   * @return List of lists of strings.
    */
   public static List<List<String>> splitFieldsFast(String str, String delimiter) {
     List<List<String>> fields = Generics.newArrayList();
@@ -578,7 +566,7 @@ public class StringUtils  {
     Pattern vPat = Pattern.compile(valueRegex);
     Pattern sPat = Pattern.compile(separatorRegex);
     List<String> ret = new ArrayList<>();
-    while (str.length() > 0) {
+    while ( ! str.isEmpty()) {
       Matcher vm = vPat.matcher(str);
       if (vm.lookingAt()) {
         ret.add(vm.group());
@@ -588,7 +576,7 @@ public class StringUtils  {
       } else {
         throw new IllegalArgumentException("valueSplit: " + valueRegex + " doesn't match " + str);
       }
-      if (str.length() > 0) {
+      if ( ! str.isEmpty()) {
         Matcher sm = sPat.matcher(str);
         if (sm.lookingAt()) {
           str = str.substring(sm.end());
@@ -610,13 +598,23 @@ public class StringUtils  {
    * than totalChars, it is returned unchanged.
    */
   public static String pad(String str, int totalChars) {
+    return pad(str, totalChars, ' ');
+  }
+
+  /**
+   * Return a String of length a minimum of totalChars characters by
+   * padding the input String str at the right end with spaces.
+   * If str is already longer
+   * than totalChars, it is returned unchanged.
+   */
+  public static String pad(String str, int totalChars, char pad) {
     if (str == null) {
       str = "null";
     }
     int slen = str.length();
     StringBuilder sb = new StringBuilder(str);
     for (int i = 0; i < totalChars - slen; i++) {
-      sb.append(' ');
+      sb.append(pad);
     }
     return sb.toString();
   }
@@ -687,7 +685,7 @@ public class StringUtils  {
 
 
   /**
-   * Pads the given String to the left with the given character to ensure that
+   * Pads the given String to the left with the given character ch to ensure that
    * it's at least totalChars long.
    */
   public static String padLeft(String str, int totalChars, char ch) {
@@ -731,12 +729,22 @@ public class StringUtils  {
     if (s.length() <= maxWidth) {
       return (s);
     }
-    return (s.substring(0, maxWidth));
+    return s.substring(0, maxWidth);
   }
 
   public static String trim(Object obj, int maxWidth) {
     return trim(obj.toString(), maxWidth);
   }
+
+  public static String trimWithEllipsis(String s, int width) {
+    if (s.length() > width) s = s.substring(0, width - 3) + "...";
+    return s;
+  }
+
+  public static String trimWithEllipsis(Object o, int width) {
+    return trimWithEllipsis(o.toString(), width);
+  }
+
 
   public static String repeat(String s, int times) {
     if (times == 0) {
@@ -823,15 +831,15 @@ public class StringUtils  {
   /**
    * Parses command line arguments into a Map. Arguments of the form
    * <p/>
-   * -flag1 arg1a arg1b ... arg1m -flag2 -flag3 arg3a ... arg3n
+   * {@code -flag1 arg1a arg1b ... arg1m -flag2 -flag3 arg3a ... arg3n}
    * <p/>
    * will be parsed so that the flag is a key in the Map (including
    * the hyphen) and its value will be a {@link String}[] containing
    * the optional arguments (if present).  The non-flag values not
    * captured as flag arguments are collected into a String[] array
-   * and returned as the value of <code>null</code> in the Map.  In
+   * and returned as the value of {@code null} in the Map.  In
    * this invocation, flags cannot take arguments, so all the {@link
-   * String} array values other than the value for <code>null</code>
+   * String} array values other than the value for {@code null}
    * will be zero-length.
    *
    * @param args A command-line arguments array
@@ -839,22 +847,22 @@ public class StringUtils  {
    *         String} arrays.
    */
   public static Map<String, String[]> argsToMap(String[] args) {
-    return argsToMap(args, Collections.<String,Integer>emptyMap());
+    return argsToMap(args, Collections.emptyMap());
   }
 
   /**
    * Parses command line arguments into a Map. Arguments of the form
    * <p/>
-   * -flag1 arg1a arg1b ... arg1m -flag2 -flag3 arg3a ... arg3n
+   * {@code -flag1 arg1a arg1b ... arg1m -flag2 -flag3 arg3a ... arg3n}
    * <p/>
    * will be parsed so that the flag is a key in the Map (including
    * the hyphen) and its value will be a {@link String}[] containing
    * the optional arguments (if present).  The non-flag values not
    * captured as flag arguments are collected into a String[] array
-   * and returned as the value of <code>null</code> in the Map.  In
+   * and returned as the value of {@code null} in the Map.  In
    * this invocation, the maximum number of arguments for each flag
    * can be specified as an {@link Integer} value of the appropriate
-   * flag key in the <code>flagsToNumArgs</code> {@link Map}
+   * flag key in the {@code flagsToNumArgs} {@link Map}
    * argument. (By default, flags cannot take arguments.)
    * <p/>
    * Example of usage:
@@ -885,7 +893,7 @@ public class StringUtils  {
         int max = numFlagArgs == null ? 1 : numFlagArgs.intValue();
         int min = numFlagArgs == null ? 0 : numFlagArgs.intValue();
         List<String> flagArgs = new ArrayList<>();
-        for (int j = 0; j < max && i + 1 < args.length && (j < min || args[i + 1].length() == 0 || args[i + 1].charAt(0) != '-'); i++, j++) {
+        for (int j = 0; j < max && i + 1 < args.length && (j < min || args[i + 1].isEmpty() || args[i + 1].charAt(0) != '-'); i++, j++) {
           flagArgs.add(args[i + 1]);
         }
         if (result.containsKey(key)) { // append the second specification into the args.
@@ -916,7 +924,7 @@ public class StringUtils  {
    * @return A Properties object representing the arguments.
    */
   public static Properties argsToProperties(String... args) {
-    return argsToProperties(args, Collections.<String,Integer>emptyMap());
+    return argsToProperties(args, Collections.emptyMap());
   }
 
   /**
@@ -926,13 +934,16 @@ public class StringUtils  {
    * <li> Since Properties objects are String to String mappings, the default number of arguments to a flag is
    * assumed to be 1 and not 0. </li>
    * <li> Furthermore, the list of arguments not bound to a flag is mapped to the "" property, not null </li>
-   * <li> The special flags "-prop", "-props", or "-properties" will load the property file specified by its argument. </li>
+   * <li> The special flags "-prop", "-props", "-properties", "-args", or "-arguments" will load the property file
+   *      specified by its argument. </li>
    * <li> The value for flags without arguments is set to "true" </li>
    * <li> If a flag has multiple arguments, the value of the property is all
-   * of the arguments joined together with a space (" ") character between
-   * them.</li>
-   * <li> The value strings are trimmed so trailing spaces do not stop you from loading a file</li>
+   * of the arguments joined together with a space (" ") character between them.</li>
+   * <li> The value strings are trimmed so trailing spaces do not stop you from loading a file.</li>
    * </ul>
+   * Properties are read from left to right, and later properties will override earlier ones with the same name.
+   * Properties loaded from a Properties file with the special args are defaults that can be overridden by command line
+   * flags (or earlier Properties files if there is nested usage of the special args.
    *
    * @param args Command line arguments
    * @param flagsToNumArgs Map of how many arguments flags should have. The keys are without the minus signs.
@@ -943,11 +954,12 @@ public class StringUtils  {
     List<String> remainingArgs = new ArrayList<>();
     for (int i = 0; i < args.length; i++) {
       String key = args[i];
-      if (key.length() > 0 && key.charAt(0) == '-') { // found a flag
-        if (key.length() > 1 && key.charAt(1) == '-')
+      if ( ! key.isEmpty() && key.charAt(0) == '-') { // found a flag
+        if (key.length() > 1 && key.charAt(1) == '-') {
           key = key.substring(2); // strip off 2 hyphens
-        else
+        } else {
           key = key.substring(1); // strip off the hyphen
+        }
 
         Integer maxFlagArgs = flagsToNumArgs.get(key);
         int max = maxFlagArgs == null ? 1 : maxFlagArgs;
@@ -961,40 +973,46 @@ public class StringUtils  {
         for (int j = 0; j < max && i + 1 < args.length && (j < min || args[i + 1].isEmpty() || args[i + 1].charAt(0) != '-'); i++, j++) {
           flagArgs.add(args[i + 1]);
         }
+        String value;
         if (flagArgs.isEmpty()) {
-          result.setProperty(key, "true");
+          value = "true";
         } else {
-          result.setProperty(key, join(flagArgs, " "));
-          if (key.equalsIgnoreCase(PROP) || key.equalsIgnoreCase(PROPS) || key.equalsIgnoreCase(PROPERTIES) || key.equalsIgnoreCase(ARGUMENTS) || key.equalsIgnoreCase(ARGS)) {
-            try {
-              BufferedReader reader = IOUtils.readerFromString(result.getProperty(key));
-              result.remove(key); // location of this line is critical
-              result.load(reader);
-              // trim all values
-              for (String propKey : result.stringPropertyNames()){
-                String newVal = result.getProperty(propKey);
-                result.setProperty(propKey, newVal.trim());
-              }
-              reader.close();
-            } catch (IOException e) {
-              String msg = "argsToProperties could not read properties file: " + result.getProperty(key);
-              result.remove(key);
-              throw new RuntimeIOException(msg, e);
-            }
-          }
+          value = join(flagArgs, " ");
+        }
+        if (key.equalsIgnoreCase(PROP) || key.equalsIgnoreCase(PROPS) || key.equalsIgnoreCase(PROPERTIES) || key.equalsIgnoreCase(ARGUMENTS) || key.equalsIgnoreCase(ARGS)) {
+          result.setProperty(PROPERTIES, value);
+        } else {
+          result.setProperty(key, value);
         }
       } else {
         remainingArgs.add(args[i]);
       }
     }
-    if (!remainingArgs.isEmpty()) {
+    if ( ! remainingArgs.isEmpty()) {
       result.setProperty("", join(remainingArgs, " "));
     }
 
-    if (result.containsKey(PROP)) {
-      String file = result.getProperty(PROP);
-      result.remove(PROP);
-      Properties toAdd = argsToProperties("-prop", file);
+    /* Processing in reverse order, add properties that aren't present only. Thus, later ones override earlier ones. */
+    while (result.containsKey(PROPERTIES)) {
+      String file = result.getProperty(PROPERTIES);
+      result.remove(PROPERTIES);
+      Properties toAdd = new Properties();
+      BufferedReader reader = null;
+      try {
+        reader = IOUtils.readerFromString(file);
+        toAdd.load(reader);
+        // trim all values
+        for (String propKey : toAdd.stringPropertyNames()) {
+          String newVal = toAdd.getProperty(propKey);
+          toAdd.setProperty(propKey, newVal.trim());
+        }
+      } catch (IOException e) {
+        String msg = "argsToProperties could not read properties file: " + file;
+        throw new RuntimeIOException(msg, e);
+      } finally {
+        IOUtils.closeIgnoringExceptions(reader);
+      }
+
       for (String key : toAdd.stringPropertyNames()) {
         String val = toAdd.getProperty(key);
         if ( ! result.containsKey(key)) {
@@ -1009,16 +1027,16 @@ public class StringUtils  {
 
   /**
    * This method reads in properties listed in a file in the format prop=value, one property per line.
-   * Although <code>Properties.load(InputStream)</code> exists, I implemented this method to trim the lines,
-   * something not implemented in the <code>load()</code> method.
+   * Although {@code Properties.load(InputStream)} exists, I implemented this method to trim the lines,
+   * something not implemented in the {@code load()} method.
    *
    * @param filename A properties file to read
    * @return The corresponding Properties object
    */
   public static Properties propFileToProperties(String filename) {
-    Properties result = new Properties();
     try {
       InputStream is = new BufferedInputStream(new FileInputStream(filename));
+      Properties result = new Properties();
       result.load(is);
       // trim all values
       for (String propKey : result.stringPropertyNames()){
@@ -1106,8 +1124,8 @@ public class StringUtils  {
         pw.print(message);
       }
     } catch (Exception e) {
-      log.info("Exception: in printToFile " + file.getAbsolutePath());
-      e.printStackTrace();
+      log.warn("Exception: in printToFile " + file.getAbsolutePath());
+      log.warn(e);
     } finally {
       if (pw != null) {
         pw.flush();
@@ -1128,8 +1146,8 @@ public class StringUtils  {
       pw = new PrintWriter(fw);
       pw.println(message);
     } catch (Exception e) {
-      log.info("Exception: in printToFileLn " + file.getAbsolutePath() + ' ' + message);
-      e.printStackTrace();
+      log.warn("Exception: in printToFileLn " + file.getAbsolutePath() + ' ' + message);
+      log.warn(e);
     } finally {
       if (pw != null) {
         pw.flush();
@@ -1309,6 +1327,7 @@ public class StringUtils  {
    * @return An array of Strings that s is split into
    */
   public static String[] splitOnCharWithQuoting(String s, char splitChar, char quoteChar, char escapeChar) {
+    // todo [cdm 2018]: rewrite this to use code points so can work with any Unicode characters
     List<String> result = new ArrayList<>();
     int i = 0;
     int length = s.length();
@@ -1532,8 +1551,7 @@ public class StringUtils  {
    * Returns a short class name for an object.
    * This is the class name stripped of any package name.
    *
-   * @return The name of the class minus a package name, for example
-   *         <code>ArrayList</code>
+   * @return The name of the class minus a package name, for example {@code ArrayList}
    */
   public static String getShortClassName(Object o) {
     if (o == null) {
@@ -1560,10 +1578,9 @@ public class StringUtils  {
    * @return Object created from string
    */
   public static <T> T columnStringToObject(Class objClass, String str, String delimiterRegex, String[] fieldNames)
-          throws InstantiationException, IllegalAccessException, NoSuchFieldException, NoSuchMethodException, InvocationTargetException
-  {
+          throws InstantiationException, IllegalAccessException, NoSuchFieldException, NoSuchMethodException, InvocationTargetException {
     Pattern delimiterPattern = Pattern.compile(delimiterRegex);
-    return StringUtils.<T>columnStringToObject(objClass, str, delimiterPattern, fieldNames);
+    return StringUtils.columnStringToObject(objClass, str, delimiterPattern, fieldNames);
   }
 
   /**
@@ -1578,10 +1595,9 @@ public class StringUtils  {
    * @return Object created from string
    */
   public static <T> T columnStringToObject(Class<?> objClass, String str, Pattern delimiterPattern, String[] fieldNames)
-          throws InstantiationException, IllegalAccessException, NoSuchMethodException, NoSuchFieldException, InvocationTargetException
-  {
+          throws InstantiationException, IllegalAccessException, NoSuchMethodException, NoSuchFieldException, InvocationTargetException {
     String[] fields = delimiterPattern.split(str);
-    T item = ErasureUtils.<T>uncheckedCast(objClass.newInstance());
+    T item = ErasureUtils.uncheckedCast(objClass.newInstance());
     for (int i = 0; i < fields.length; i++) {
       try {
         Field field = objClass.getDeclaredField(fieldNames[i]);
@@ -1866,21 +1882,28 @@ public class StringUtils  {
   }
 
   /**
-   * Returns the supplied string with any trailing '\n' removed.
+   * Returns the supplied string with any trailing '\n' or '\r\n' removed.
    */
   public static String chomp(String s) {
-    if(s.length() == 0)
-      return s;
-    int l_1 = s.length() - 1;
-    if (s.charAt(l_1) == '\n') {
-      return s.substring(0, l_1);
+    if (s == null) {
+      return null;
     }
-    return s;
+    int l_1 = s.length() - 1;
+    if (l_1 >= 0 && s.charAt(l_1) == '\n') {
+      int l_2 = l_1 - 1;
+      if (l_2 >= 0 && s.charAt(l_2) == '\r') {
+        return s.substring(0, l_2);
+      } else {
+        return s.substring(0, l_1);
+      }
+    } else {
+      return s;
+    }
   }
 
   /**
    * Returns the result of calling toString() on the supplied Object, but with
-   * any trailing '\n' removed.
+   * any trailing '\n' or '\r\n' removed.
    */
   public static String chomp(Object o) {
     return chomp(o.toString());
@@ -1897,14 +1920,25 @@ public class StringUtils  {
   }
 
   /**
-   * Strip directory and suffix from filename.  Like Unix 'basename'. <p/>
+   * Strip directory and suffix from filename.  Like Unix 'basename'.
    *
-   * Example: <code>getBaseName("/u/wcmac/foo.txt", "") ==> "foo.txt"</code><br/>
-   * Example: <code>getBaseName("/u/wcmac/foo.txt", ".txt") ==> "foo"</code><br/>
-   * Example: <code>getBaseName("/u/wcmac/foo.txt", ".pdf") ==> "foo.txt"</code><br/>
+   * Example: {@code getBaseName("/u/wcmac/foo.txt", "") ==> "foo.txt"}<br/>
+   * Example: {@code getBaseName("/u/wcmac/foo.txt", ".txt") ==> "foo"}<br/>
+   * Example: {@code getBaseName("/u/wcmac/foo.txt", ".pdf") ==> "foo.txt"}<br/>
    */
   public static String getBaseName(String fileName, String suffix) {
-    String[] elts = fileName.split("/");
+    return getBaseName(fileName, suffix, "/");
+  }
+
+  /**
+   * Strip directory and suffix from the given name.  Like Unix 'basename'.
+   *
+   * Example: {@code getBaseName("/tmp/foo/bar/foo", "", "/") ==> "foo"}<br/>
+   * Example: {@code getBaseName("edu.stanford.nlp", "", "\\.") ==> "nlp"}<br/>
+   */
+  public static String getBaseName(String fileName, String suffix, String sep) {
+    String[] elts = fileName.split(sep);
+    if (elts.length == 0) return "";
     String lastElt = elts[elts.length - 1];
     if (lastElt.endsWith(suffix)) {
       lastElt = lastElt.substring(0, lastElt.length() - suffix.length());
@@ -1979,6 +2013,17 @@ public class StringUtils  {
       return s;
   }
 
+  /** Returns whether a String is either null or empty.
+   *  (Copies the Guava method for this.)
+   *
+   *  @param str The String to test
+   *  @return Whether the String is either null or empty
+   */
+  public static boolean isNullOrEmpty(String str) {
+    return str == null || str.isEmpty();
+  }
+
+
   /**
    * Resolve variable. If it is the props file, then substitute that variable with
    * the value mentioned in the props file, otherwise look for the variable in the environment variables.
@@ -2030,7 +2075,7 @@ public class StringUtils  {
         int min = 0;
         List<String> flagArgs = new ArrayList<>();
         // cdm oct 2007: add length check to allow for empty string argument!
-        for (int j = 0; j < max && i + 1 < args.length && (j < min || args[i + 1].length() == 0 || args[i + 1].charAt(0) != '-'); i++, j++) {
+        for (int j = 0; j < max && i + 1 < args.length && (j < min || args[i + 1].isEmpty() || args[i + 1].charAt(0) != '-'); i++, j++) {
           flagArgs.add(args[i + 1]);
         }
 
@@ -2070,8 +2115,7 @@ public class StringUtils  {
    */
   public static LinkedHashMap<String, String> propFileToLinkedHashMap(String filename, Map<String, String> existingArgs) {
 
-    LinkedHashMap<String, String> result = new LinkedHashMap<>();
-    result.putAll(existingArgs);
+    LinkedHashMap<String, String> result = new LinkedHashMap<>(existingArgs);
     for (String l : IOUtils.readLines(filename)) {
       l = l.trim();
       if (l.isEmpty() || l.startsWith("#"))
@@ -2087,7 +2131,7 @@ public class StringUtils  {
   }
 
   /**
-   * n grams for already splitted string. the ngrams are joined with a single space
+   * n grams for already split string. the ngrams are joined with a single space
    */
   public static Collection<String> getNgrams(List<String> words, int minSize, int maxSize){
     List<List<String>> ng = CollectionUtils.getNGrams(words, minSize, maxSize);
@@ -2099,7 +2143,7 @@ public class StringUtils  {
   }
 
   /**
-   * n grams for already splitted string. the ngrams are joined with a single space
+   * n grams for already split string. the ngrams are joined with a single space
    */
   public static Collection<String> getNgramsFromTokens(List<CoreLabel> words, int minSize, int maxSize){
     List<String> wordsStr = new ArrayList<>();
@@ -2428,77 +2472,75 @@ public class StringUtils  {
 
   /**
    * Decode an array encoded as a String. This entails a comma separated value enclosed in brackets
-   * or parentheses
-   * @param encoded The String encoded array
+   * or parentheses.
+   *
+   * @param encoded The String encoding an array
    * @return A String array corresponding to the encoded array
    */
-  public static String[] decodeArray(String encoded){
-    if (encoded.length() == 0) return new String[]{};
+  public static String[] decodeArray(String encoded) {
+    if (encoded.isEmpty()) return EMPTY_STRING_ARRAY;
     char[] chars = encoded.trim().toCharArray();
 
     //--Parse the String
-    //(state)
+    // (state)
     char quoteCloseChar = (char) 0;
-    List<StringBuilder> terms = new LinkedList<>();
+    List<String> terms = new ArrayList<>();
     StringBuilder current = new StringBuilder();
     //(start/stop overhead)
     int start = 0; int end = chars.length;
     if(chars[0] == '('){ start += 1; end -= 1; if(chars[end] != ')') throw new IllegalArgumentException("Unclosed paren in encoded array: " + encoded); }
     if(chars[0] == '['){ start += 1; end -= 1; if(chars[end] != ']') throw new IllegalArgumentException("Unclosed bracket in encoded array: " + encoded); }
     if(chars[0] == '{'){ start += 1; end -= 1; if(chars[end] != '}') throw new IllegalArgumentException("Unclosed bracket in encoded array: " + encoded); }
-    //(finite state automata)
-    for(int i=start; i<end; i++){
+    // (finite state automaton)
+    for (int i=start; i<end; i++) {
       if (chars[i] == '\r') {
         // Ignore funny windows carriage return
         continue;
-      } else if(chars[i] == '\\'){
-        //(case: escaped character)
-        if(i == chars.length - 1) throw new IllegalArgumentException("Last character of encoded pair is escape character: " + encoded);
-        current.append(chars[i+1]);
-        i += 1;
-      } else if(quoteCloseChar != 0){
+      } else if (quoteCloseChar != 0) {
         //(case: in quotes)
         if(chars[i] == quoteCloseChar){
           quoteCloseChar = (char) 0;
         }else{
           current.append(chars[i]);
         }
-      }else{
+      } else if(chars[i] == '\\'){
+        //(case: escaped character)
+        if(i == chars.length - 1) throw new IllegalArgumentException("Last character of encoded array is escape character: " + encoded);
+        current.append(chars[i+1]);
+        i += 1;
+      } else {
         //(case: normal)
-        if(chars[i] == '"'){
+        if (chars[i] == '"') {
           quoteCloseChar = '"';
-        } else if(chars[i] == '\''){
+        } else if(chars[i] == '\'') {
           quoteCloseChar = '\'';
-        } else if(chars[i] == ',' || chars[i] == ';' || chars[i] == ' ' || chars[i] == '\t' || chars[i] == '\n'){
+        } else if(chars[i] == ',' || chars[i] == ';' || chars[i] == ' ' || chars[i] == '\t' || chars[i] == '\n') {
           //break
           if (current.length() > 0) {
-            terms.add(current);
+            terms.add(current.toString().trim());
           }
           current = new StringBuilder();
-        }else{
+        } else {
           current.append(chars[i]);
         }
       }
     }
 
     //--Return
-    if(current.length() > 0) terms.add(current);
-    String[] rtn = new String[terms.size()];
-    int i=0;
-    for(StringBuilder b : terms){
-      rtn[i] = b.toString().trim();
-      i += 1;
+    if (current.length() > 0) {
+      terms.add(current.toString().trim());
     }
-    return rtn;
+    return terms.toArray(EMPTY_STRING_ARRAY);
   }
 
   /**
-   * Decode a map encoded as a string
+   * Decode a map encoded as a string.
+   *
    * @param encoded The String encoded map
    * @return A String map corresponding to the encoded map
    */
   public static Map<String, String> decodeMap(String encoded){
-    if (encoded.length() == 0) return new HashMap<>();
+    if (encoded.isEmpty()) return new HashMap<>();
     char[] chars = encoded.trim().toCharArray();
 
     //--Parse the String
@@ -2519,13 +2561,6 @@ public class StringUtils  {
       if (chars[i] == '\r') {
         // Ignore funny windows carriage return
         continue;
-      } else if(chars[i] == '\\'){
-        //(case: escaped character)
-        if(i == chars.length - 1) {
-          throw new IllegalArgumentException("Last character of encoded pair is escape character: " + encoded);
-        }
-        current.append(chars[i+1]);
-        i += 1;
       } else if(quoteCloseChar != 0){
         //(case: in quotes)
         if(chars[i] == quoteCloseChar){
@@ -2533,6 +2568,13 @@ public class StringUtils  {
         }else{
           current.append(chars[i]);
         }
+      } else if(chars[i] == '\\'){
+        //(case: escaped character)
+        if(i == chars.length - 1) {
+          throw new IllegalArgumentException("Last character of encoded pair is escape character: " + encoded);
+        }
+        current.append(chars[i+1]);
+        i += 1;
       }else{
         //(case: normal)
         if(chars[i] == '"'){
@@ -2580,7 +2622,7 @@ public class StringUtils  {
     }
 
     //--Return
-    if(current.toString().trim().length() > 0 && !onKey) {
+    if (current.toString().trim().length() > 0 && !onKey) {
       map.put(key.trim(), current.toString().trim());
     }
     return map;
@@ -2640,6 +2682,45 @@ public class StringUtils  {
       sb.append(' ').append(arg);
     }
     logger.info(sb.toString());
+  }
+
+  private static boolean containsJsonEscape(String str) {
+    for (int i = 0; i < str.length(); i++) {
+      char ch = str.charAt(i);
+      if (ch < '\u0020' || ch == '\\' || ch == '"') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static final String escapeLetters = "btnvfr";
+
+  public static String escapeJsonString(String str) {
+     // check if there are any, else return same str without allocation
+    if ( ! containsJsonEscape (str)) {
+      return str;
+    }
+    StringBuilder sb = new StringBuilder(str.length() * 2);
+    for (int i = 0; i < str.length(); i++) {
+      char ch = str.charAt(i);
+      if (ch == '\\' ) {
+        sb.append("\\\\");
+      } else if (ch == '"') {
+        sb.append("\\\"");
+      } else if (ch < '\u0020') {
+        if (ch >= '\b' && ch <= '\r' && ch != '\u000B') {
+          sb.append('\\');
+          sb.append(escapeLetters.charAt(ch - '\b'));
+        } else {
+          sb.append("\\u00");
+          sb.append(String.format("%02X", (int) ch));
+        }
+      } else {
+        sb.append(ch);
+      }
+    }
+    return sb.toString();
   }
 
 }
